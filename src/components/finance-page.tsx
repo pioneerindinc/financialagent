@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requestHumanSession } from "../lib/auth/request";
 import { allowDevelopmentRequest } from "../lib/development/config";
 import { FinanceConsole } from "./finance-console";
+import { authMode } from "../lib/auth/internal-config";
 export async function FinancePage({
   view,
   journalId,
@@ -32,10 +33,16 @@ export async function FinancePage({
           Access requires a verified Pioneer identity and an explicit company
           assignment.
         </p>
-        <p>
-          Your administrator must configure the identity-provider session bridge
-          before this workspace can be opened.
-        </p>
+        {authMode() === "internal" ? (
+          <p>
+            <Link href="/sign-in">Sign in →</Link>
+          </p>
+        ) : (
+          <p>
+            Your administrator must configure the identity-provider session
+            bridge before this workspace can be opened.
+          </p>
+        )}
         <small>No financial data is available without authentication.</small>
         {developmentAvailable && (
           <p>
@@ -47,6 +54,11 @@ export async function FinancePage({
   }
   return (
     <>
+      {actor.session !== "development" && authMode() === "internal" && (
+        <form action="/auth/sign-out" method="post">
+          <button>Sign out</button>
+        </form>
+      )}
       {actor.session === "development" && (
         <div className="development-banner" role="status">
           <strong>Development Session · Local Finance Developer</strong>

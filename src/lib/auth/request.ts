@@ -2,7 +2,7 @@ import "server-only";
 import { humanSession } from "./session";
 import { developmentSession } from "./development";
 import { allowDevelopmentRequest, DEV_COOKIE } from "../development/config";
-import { authConfig } from "../config";
+import { applicationOrigin } from "./internal-config";
 import { assert } from "../errors";
 import type { Actor } from "./policy";
 type CookieReader = { get(name: string): { value: string } | undefined };
@@ -29,7 +29,7 @@ export function assertMutationOrigin(actor: Actor, headers: Headers) {
     return;
   }
   assert(
-    headers.get("origin") === new URL(authConfig().APP_BASE_URL).origin,
+    headers.get("origin") === applicationOrigin(),
     "Invalid request origin",
     403,
   );

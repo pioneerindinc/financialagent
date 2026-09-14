@@ -5,6 +5,8 @@ import { z } from "zod";
 import { authConfig } from "../config";
 import { DomainError } from "../errors";
 import type { Actor } from "./policy";
+import { authMode } from "./internal-config";
+import { internalSession } from "./internal";
 const claims = z.object({
   sub: z.string().min(1),
   companies: z.array(z.string()),
@@ -14,6 +16,7 @@ let jwks: ReturnType<typeof createRemoteJWKSet>;
 export async function humanSession(token?: string): Promise<Actor> {
   if (!token) throw new DomainError("Authentication required", 401);
   try {
+    if (authMode() === "internal") return await internalSession(token);
     const config = authConfig();
     jwks ??= createRemoteJWKSet(new URL(config.AUTH_JWKS_URL));
     const { payload } = await jwtVerify(token, jwks, {
