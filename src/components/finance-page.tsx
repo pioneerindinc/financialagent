@@ -54,11 +54,6 @@ export async function FinancePage({
   }
   return (
     <>
-      {actor.session !== "development" && authMode() === "internal" && (
-        <form action="/auth/sign-out" method="post">
-          <button>Sign out</button>
-        </form>
-      )}
       {actor.session === "development" && (
         <div className="development-banner" role="status">
           <strong>Development Session · Local Finance Developer</strong>
@@ -70,6 +65,12 @@ export async function FinancePage({
             <button>End development session</button>
           </form>
         </div>
+      )}
+
+            {actor.session !== "development" && authMode() === "internal" && (
+        <form action="/auth/sign-out" method="post">
+          <button>Sign out</button>
+        </form>
       )}
       <FinanceConsole
         view={view}

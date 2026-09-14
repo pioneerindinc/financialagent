@@ -18,6 +18,85 @@ let humanToken: string;
 let readerToken: string;
 let expiredToken: string;
 const company = "pioneer-industries";
+test("account governance editor and manual selection enforce visible policy", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([
+    {
+      name: "__Host-finance-session",
+      value: humanToken,
+      domain: "localhost",
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "Strict",
+    },
+  ]);
+  await page.goto(`/accounts?company=${company}`);
+  const create = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Create account", exact: true }),
+  });
+  await create.getByLabel("Code", { exact: true }).fill("1900");
+  await create.getByLabel("Name", { exact: true }).fill("Governance fixture");
+  await create.getByLabel("Control account", { exact: true }).check();
+  await expect(
+    create.getByLabel("Allow manual posting", { exact: true }),
+  ).not.toBeChecked();
+  await create
+    .getByRole("button", { name: "Create account", exact: true })
+    .click();
+  await expect(
+    create.getByLabel("Control account", { exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    create.getByLabel("Allow manual posting", { exact: true }),
+  ).toBeChecked();
+  await expect(page.getByRole("row").filter({ hasText: "1900" })).toContainText(
+    "No manual posting",
+  );
+  await page.goto(`/journal?company=${company}`);
+  await expect(page.getByRole("heading", { name: /New draft/ })).toBeVisible();
+  expect(
+    await page
+      .getByRole("combobox", { name: "Account", exact: true })
+      .first()
+      .locator("option")
+      .allTextContents(),
+  ).not.toContain("1900 · Governance fixture");
+  await page.goto(`/accounts?company=${company}`);
+  await page.getByRole("button", { name: "Edit 1900", exact: true }).click();
+  const edit = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Save account", exact: true }),
+  });
+  await edit.getByLabel("Name", { exact: true }).fill("Renamed control");
+  await edit.getByLabel("Active account", { exact: true }).uncheck();
+  await edit
+    .getByLabel("Change reason", { exact: true })
+    .fill("Reviewed deactivation");
+  await edit.getByRole("button", { name: "Save account", exact: true }).click();
+  await expect(page.getByRole("row").filter({ hasText: "1900" })).toContainText(
+    "Inactive",
+  );
+  await page.getByRole("button", { name: "Edit 1900", exact: true }).click();
+  await edit.getByLabel("Active account", { exact: true }).check();
+  await edit.getByLabel("Allow manual posting", { exact: true }).check();
+  await edit
+    .getByLabel("Change reason", { exact: true })
+    .fill("Approved manual exception");
+  await edit.getByRole("button", { name: "Save account", exact: true }).click();
+  await expect(page.getByRole("row").filter({ hasText: "1900" })).toContainText(
+    "Manual posting allowed",
+  );
+  await page.goto(`/journal?company=${company}`);
+  await expect(page.getByRole("heading", { name: /New draft/ })).toBeVisible();
+  await expect(
+    page
+      .getByRole("combobox", { name: "Account", exact: true })
+      .first()
+      .locator("option", { hasText: "1900 · Renamed control" }),
+  ).toHaveCount(1);
+});
 test.beforeAll(async () => {
   test.setTimeout(120000);
   db = await MongoMemoryReplSet.create({
@@ -229,11 +308,22 @@ test("authenticated accountant completes draft, post, reports and reversal", asy
     .getByLabel("Account", { exact: true })
     .nth(1)
     .selectOption({ label: "3000 · Equity" });
-  await page.getByLabel("Debit cents").nth(0).fill("12345");
-  await page.getByLabel("Credit cents").nth(1).fill("12345");
+  await page.getByLabel("Debit ($)", { exact: true }).nth(0).fill("123.456");
+  await page.getByLabel("Credit ($)", { exact: true }).nth(1).fill("123.45");
+  await page.getByRole("button", { name: "Save balanced draft" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "at most two decimal places" }),
+  ).toBeVisible();
+  await page.getByLabel("Debit ($)", { exact: true }).nth(0).fill("123.45");
   await page.getByRole("button", { name: "Save balanced draft" }).click();
   await expect(page.getByText("Draft saved.", { exact: false })).toBeVisible();
   await page.getByRole("link", { name: "Review entry →" }).first().click();
+  await expect(
+    page.getByLabel("Debit ($)", { exact: true }).nth(0),
+  ).toHaveValue("123.45");
+  await expect(
+    page.getByLabel("Credit ($)", { exact: true }).nth(1),
+  ).toHaveValue("123.45");
   page.on("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Post reviewed journal" }).click();
   await expect(

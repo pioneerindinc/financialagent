@@ -1,10 +1,19 @@
-import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
+import {
+  beforeAll,
+  beforeEach,
+  afterAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { randomUUID } from "node:crypto";
 import { bootstrap } from "../src/domains/companies/bootstrap";
 import {
   createAccount,
+  editAccount,
   createDraft,
   createPeriod,
   closePeriod,
@@ -87,6 +96,370 @@ beforeEach(async () => {
   ).id;
 });
 describe("durable accounting core", () => {
+  it("rolls back account edits if their audit cannot be persisted", async () => {
+    const failure = vi
+      .spyOn(Audit, "create")
+      .mockRejectedValueOnce(new Error("Test audit failure"));
+    try {
+      await expect(
+        editAccount(
+          human,
+          company,
+          debit,
+          { name: "Must roll back" },
+          0,
+          "Test atomicity",
+        ),
+      ).rejects.toThrow("Test audit failure");
+    } finally {
+      failure.mockRestore();
+    }
+    expect((await Account.findById(debit)).name).toBe("Cash");
+    expect((await Account.findById(debit)).revision).toBe(0);
+    expect(await Audit.countDocuments({ action: "account.edit" })).toBe(0);
+  });
+  it("serializes concurrent edits and accepts only one revision", async () => {
+    const results = await Promise.allSettled([
+      editAccount(human, company, debit, { name: "First" }, 0, "First edit"),
+      editAccount(human, company, debit, { name: "Second" }, 0, "Second edit"),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await Audit.countDocuments({ action: "account.edit" })).toBe(1);
+  });
+  it("defaults legacy governance without rewriting old accounts", async () => {
+    const rawAccounts = mongoose.connection.db!.collection<{
+      _id: string;
+      allowManualPosting?: boolean;
+    }>(Account.collection.collectionName);
+    await rawAccounts.updateOne(
+      { _id: debit },
+      { $unset: { controlAccount: "", allowManualPosting: "", revision: "" } },
+    );
+    const legacy = await Account.findById(debit);
+    expect(legacy.controlAccount).toBe(false);
+    expect(legacy.allowManualPosting).toBe(true);
+    expect(legacy.revision).toBe(0);
+    await createDraft(human, company, draft());
+    expect(
+      (await rawAccounts.findOne({ _id: debit }))?.allowManualPosting,
+    ).toBeUndefined();
+    await editAccount(
+      human,
+      company,
+      debit,
+      { name: "Legacy renamed" },
+      0,
+      "Reviewed correction",
+    );
+  });
+  it("defaults new control accounts to nonmanual while allowing an explicit exception", async () => {
+    const control = await createAccount(human, company, {
+      code: "1100",
+      name: "AR",
+      type: "Asset",
+      controlAccount: true,
+    });
+    expect(control.allowManualPosting).toBe(false);
+    const exception = await createAccount(human, company, {
+      code: "1110",
+      name: "Allowance",
+      type: "Asset",
+      controlAccount: true,
+      allowManualPosting: true,
+    });
+    expect(exception.allowManualPosting).toBe(true);
+  });
+  it("audits account edits and rejects stale revisions", async () => {
+    const result = await editAccount(
+      human,
+      company,
+      debit,
+      {
+        name: "Operating cash",
+        controlAccount: true,
+        allowManualPosting: false,
+      },
+      0,
+      "Approved governance",
+    );
+    expect(result.revision).toBe(1);
+    const audit = await Audit.findOne({
+      companyId: company,
+      action: "account.edit",
+      entityId: debit,
+    });
+    expect(audit.before.name).toBe("Cash");
+    expect(audit.after.name).toBe("Operating cash");
+    expect(audit.after.allowManualPosting).toBe(false);
+    expect(audit.reason).toBe("Approved governance");
+    expect(audit.createdBy).toBe("human:test-accountant");
+    expect(audit.createdAt).toBeInstanceOf(Date);
+    await expect(
+      editAccount(human, company, debit, { active: false }, 0, "Stale"),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      editAccount(
+        human,
+        company,
+        credit,
+        { controlAccount: true },
+        0,
+        "No choice",
+      ),
+    ).rejects.toThrow("Choose manual");
+  });
+  it("deactivates/reactivates without deleting historical balances", async () => {
+    const entry = await createDraft(human, company, draft());
+    await postJournal(human, company, entry.id, 0);
+    await editAccount(
+      human,
+      company,
+      debit,
+      { active: false },
+      0,
+      "Retire cash account",
+    );
+    await expect(createDraft(human, company, draft())).rejects.toThrow(
+      "active",
+    );
+    expect(
+      (await overview(human, company)).accounts.find((a) => a.id === debit)
+        ?.active,
+    ).toBe(false);
+    expect(
+      (await trialBalance(human, company, "2026-01-31")).rows.find(
+        (a) => a.accountId === debit,
+      )?.debitCents,
+    ).toBe(12500);
+    expect(
+      (await generalLedger(human, company, "2026-01-01", "2026-01-31", debit))
+        .rows,
+    ).toHaveLength(1);
+    await editAccount(
+      human,
+      company,
+      debit,
+      { active: true },
+      1,
+      "Approved reactivation",
+    );
+    await createDraft(human, company, draft());
+  });
+  it("enforces manual policy on create, edit and posting despite fake source labels", async () => {
+    const entry = await createDraft(human, company, draft());
+    await editAccount(
+      human,
+      company,
+      debit,
+      { allowManualPosting: false },
+      0,
+      "Restrict manual use",
+    );
+    await expect(createDraft(human, company, draft())).rejects.toThrow(
+      "manual posting",
+    );
+    await expect(
+      createDraft(human, company, draft({ sourceSystem: "pioneer-erp" })),
+    ).rejects.toThrow("manual posting");
+    await expect(
+      editDraft(
+        human,
+        company,
+        entry.id,
+        draft({ sourceId: entry.sourceId }),
+        0,
+      ),
+    ).rejects.toThrow("manual posting");
+    await expect(postJournal(human, company, entry.id, 0)).rejects.toThrow(
+      "manual posting",
+    );
+    await expect(
+      createDraft(human, company, draft({ postingOrigin: "source" })),
+    ).rejects.toThrow();
+  });
+  it("uses authenticated source provenance and still rejects inactive source accounts", async () => {
+    const source: Actor = {
+      id: "erp",
+      kind: "service",
+      companies: [company],
+      scopes: ["finance:source:write"],
+    };
+    await editAccount(
+      human,
+      company,
+      debit,
+      { controlAccount: true, allowManualPosting: false },
+      0,
+      "AR control",
+    );
+    const input = draft({ sourceSystem: "pioneer-erp" });
+    const entry = await createDraft(source, company, input);
+    expect(entry.postingOrigin).toBe("source");
+    expect((await createDraft(source, company, input)).id).toBe(entry.id);
+    await expect(
+      postJournal(source, company, entry.id, 0),
+    ).rejects.toMatchObject({ status: 403 });
+    await postJournal(human, company, entry.id, 0);
+    const waiting = await createDraft(source, company, draft());
+    await expect(
+      editDraft(
+        human,
+        company,
+        waiting.id,
+        draft({ sourceId: waiting.sourceId }),
+        0,
+      ),
+    ).rejects.toThrow("Imported");
+    await editAccount(
+      human,
+      company,
+      debit,
+      { active: false },
+      1,
+      "Deactivate control",
+    );
+    await expect(createDraft(source, company, draft())).rejects.toThrow(
+      "active",
+    );
+    await expect(postJournal(human, company, waiting.id, 0)).rejects.toThrow(
+      "active",
+    );
+    expect((await createDraft(source, company, input)).id).toBe(entry.id);
+  });
+  it("uses server attribution for legacy source classification", async () => {
+    const entry = await createDraft(
+      human,
+      company,
+      draft({ sourceSystem: "erp" }),
+    );
+    await Journal.collection.updateOne(
+      { _id: entry.id },
+      { $unset: { postingOrigin: "" } },
+    );
+    await editAccount(
+      human,
+      company,
+      debit,
+      { allowManualPosting: false },
+      0,
+      "Restrict",
+    );
+    await expect(postJournal(human, company, entry.id, 0)).rejects.toThrow(
+      "manual posting",
+    );
+    const source: Actor = {
+      id: "legacy-erp",
+      kind: "service",
+      companies: [company],
+      scopes: ["finance:source:write"],
+    };
+    const imported = await createDraft(
+      source,
+      company,
+      draft({ sourceSystem: "erp" }),
+    );
+    await Journal.collection.updateOne(
+      { _id: imported.id },
+      { $unset: { postingOrigin: "" } },
+    );
+    await postJournal(human, company, imported.id, 0);
+  });
+  it("preserves exact audited reversal of inactive nonmanual accounts", async () => {
+    const entry = await createDraft(human, company, draft());
+    await postJournal(human, company, entry.id, 0);
+    await editAccount(
+      human,
+      company,
+      debit,
+      { active: false, allowManualPosting: false },
+      0,
+      "Retire",
+    );
+    const reversed = await reverseJournal(
+      human,
+      company,
+      entry.id,
+      "2026-01-20",
+      "Correct historical entry",
+    );
+    expect(reversed.postingOrigin).toBe("system");
+    expect((await trialBalance(human, company, "2026-01-31")).debitCents).toBe(
+      0,
+    );
+  });
+  it("rejects account edits across company or actor authority", async () => {
+    await expect(
+      editAccount(human, other, debit, { name: "Wrong" }, 0, "Wrong company"),
+    ).rejects.toMatchObject({ status: 404 });
+    for (const actor of [
+      { ...human, companies: [other] },
+      { ...human, scopes: ["finance:read"] },
+      { ...human, kind: "service" as const },
+    ])
+      await expect(
+        editAccount(
+          actor,
+          company,
+          debit,
+          { active: false },
+          0,
+          "Not authorized",
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+  });
+  it("never changes account code or type, including after accounting usage", async () => {
+    const entry = await createDraft(human, company, draft());
+    await postJournal(human, company, entry.id, 0);
+    for (const changes of [{ code: "2000" }, { type: "Liability" }])
+      await expect(
+        editAccount(human, company, debit, changes, 0, "Unsafe mutation"),
+      ).rejects.toThrow();
+    expect((await Account.findById(debit)).type).toBe("Asset");
+  });
+  it("validates parent type, company, self and descendant cycles and permits removing parent", async () => {
+    const child = await createAccount(human, company, {
+      code: "1001",
+      name: "Child",
+      type: "Asset",
+      parentId: debit,
+    });
+    await expect(
+      editAccount(human, company, debit, { parentId: child.id }, 0, "Cycle"),
+    ).rejects.toThrow("cycle");
+    await expect(
+      editAccount(human, company, debit, { parentId: debit }, 0, "Self"),
+    ).rejects.toThrow("cycle");
+    await expect(
+      editAccount(human, company, debit, { parentId: credit }, 0, "Wrong type"),
+    ).rejects.toThrow("Parent");
+    const foreign = await createAccount(human, other, {
+      code: "1000",
+      name: "Other",
+      type: "Asset",
+    });
+    await expect(
+      editAccount(
+        human,
+        company,
+        debit,
+        { parentId: foreign.id },
+        0,
+        "Wrong company",
+      ),
+    ).rejects.toThrow("Parent");
+    expect(
+      (
+        await editAccount(
+          human,
+          company,
+          child.id,
+          { parentId: null },
+          0,
+          "Make standalone",
+        )
+      ).parentId,
+    ).toBeUndefined();
+  });
   it("bootstraps four companies without changing stable IDs or existing settings", async () => {
     await Company.updateOne(
       { _id: company },

@@ -33,6 +33,9 @@ const account = new Schema(
     subtype: String,
     parentId: String,
     active: Boolean,
+    controlAccount: { type: Boolean, default: false },
+    allowManualPosting: { type: Boolean, default: true },
+    revision: { type: Number, default: 0 },
   },
   options,
 );
@@ -64,6 +67,7 @@ const journal = new Schema(
     sourceId: String,
     sourceRevision: String,
     sourceHash: String,
+    postingOrigin: { type: String, enum: ["manual", "source", "system"] },
     status: { type: String, enum: ["draft", "posted"], default: "draft" },
     lines: [line],
     revision: { type: Number, default: 0 },

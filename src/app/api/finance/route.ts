@@ -8,6 +8,7 @@ import {
 import { DomainError, assert } from "../../../lib/errors";
 import {
   createAccount,
+  editAccount,
   createDraft,
   createPeriod,
   closePeriod,
@@ -94,6 +95,7 @@ const command = z
     companyId: id,
     action: z.enum([
       "account.create",
+      "account.edit",
       "period.create",
       "period.close",
       "journal.create",
@@ -124,6 +126,16 @@ export async function POST(req: NextRequest) {
     switch (c.action) {
       case "account.create":
         result = await createAccount(user, c.companyId, c.data);
+        break;
+      case "account.edit":
+        result = await editAccount(
+          user,
+          c.companyId,
+          id.parse(c.id),
+          c.data,
+          z.number().int().nonnegative().parse(c.revision),
+          text.parse(c.reason),
+        );
         break;
       case "period.create":
         result = await createPeriod(user, c.companyId, c.data);

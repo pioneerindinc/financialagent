@@ -1,10 +1,47 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { add, subtract, cents, formatMoney } from "../src/lib/money";
+import {
+  add,
+  subtract,
+  cents,
+  formatMoney,
+  dollarsToCents,
+  centsToDollarInput,
+} from "../src/lib/money";
 import { humanSession, serviceSession } from "../src/lib/auth/session";
 import { authorize, type Actor } from "../src/lib/auth/policy";
 afterEach(() => vi.unstubAllEnvs());
 describe("exact money", () => {
+  it.each([
+    ["123.45", 12345],
+    ["100", 10000],
+    ["0.29", 29],
+    [".5", 50],
+    ["1.", 100],
+    ["", 0],
+    [" 0.01 ", 1],
+    ["90071992547409.91", Number.MAX_SAFE_INTEGER],
+  ] as const)("converts dollar input %s exactly", (input, expected) =>
+    expect(dollarsToCents(input)).toBe(expected),
+  );
+  it.each([
+    "1.005",
+    "-1",
+    "1e2",
+    "$12.00",
+    "1,000.00",
+    "NaN",
+    ".",
+    "90071992547409.92",
+  ])("rejects ambiguous or inexact dollar input %s", (input) =>
+    expect(() => dollarsToCents(input)).toThrow(),
+  );
+  it.each([0, 1, 29, 12345, Number.MAX_SAFE_INTEGER])(
+    "round trips stored cents %s without rounding",
+    (value) => {
+      expect(dollarsToCents(centsToDollarInput(value))).toBe(value);
+    },
+  );
   it("adds cents exactly", () => expect(add(10, 20)).toBe(30));
   it("subtracts cents exactly", () => expect(subtract(20, 30)).toBe(-10));
   it("formats zero", () => expect(formatMoney(0)).toBe("$0.00"));

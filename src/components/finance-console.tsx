@@ -2,7 +2,8 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { formatMoney } from "../lib/money";
+import { formatMoney, dollarsToCents, centsToDollarInput } from "../lib/money";
+import { AccountEditor, AccountGovernance } from "./account-governance";
 type Account = {
   _id: string;
   code: string;
@@ -10,6 +11,10 @@ type Account = {
   type: string;
   subtype: string;
   active: boolean;
+  parentId?: string;
+  controlAccount?: boolean;
+  allowManualPosting?: boolean;
+  revision?: number;
 };
 type Entry = {
   _id: string;
@@ -20,6 +25,7 @@ type Entry = {
   reversalOf?: string;
   reversedBy?: string;
   sourceSystem: string;
+  postingOrigin?: string;
   sourceType: string;
   sourceId: string;
   sourceRevision: string;
@@ -86,6 +92,8 @@ export function FinanceConsole({
   const search = useSearchParams();
   const requestedCompany = search.get("company") || "";
   const [selectedCompany, setCompany] = useState<string>();
+  const [editingAccount, setEditingAccount] = useState<Account>();
+  const [accountFormVersion, setAccountFormVersion] = useState(0);
   const company =
     selectedCompany ??
     (companyIds.includes(requestedCompany) ? requestedCompany : "");
@@ -159,6 +167,7 @@ export function FinanceConsole({
     }
   }
   function choose(value: string) {
+    setEditingAccount(undefined);
     setData(undefined);
     setEntry(undefined);
     setReport(undefined);
@@ -321,6 +330,8 @@ export function FinanceConsole({
                         <th>Type</th>
                         <th>Subtype</th>
                         <th>Status</th>
+                        <th>Posting policy</th>
+                        {canWrite && <th>Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -331,6 +342,22 @@ export function FinanceConsole({
                           <td>{a.type}</td>
                           <td>{a.subtype}</td>
                           <td>{a.active ? "Active" : "Inactive"}</td>
+                          <td>
+                            {a.controlAccount === true ? "Control · " : ""}
+                            {a.allowManualPosting === false
+                              ? "No manual posting"
+                              : "Manual posting allowed"}
+                          </td>
+                          {canWrite && (
+                            <td>
+                              <button
+                                disabled={busy}
+                                onClick={() => setEditingAccount(a)}
+                              >
+                                Edit {a.code}
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -351,10 +378,14 @@ export function FinanceConsole({
                               name: f.get("name"),
                               type: f.get("type"),
                               subtype: f.get("subtype"),
+                              controlAccount: f.has("controlAccount"),
+                              allowManualPosting: f.has("allowManualPosting"),
                             },
                           })
-                        )
+                        ) {
                           form.reset();
+                          setAccountFormVersion((v) => v + 1);
+                        }
                       }}
                     >
                       <label>
@@ -383,9 +414,33 @@ export function FinanceConsole({
                         Subtype
                         <input name="subtype" />
                       </label>
+                      <AccountGovernance
+                        key={`${company}:${accountFormVersion}`}
+                      />
                       <button disabled={busy}>Create account</button>
                     </form>
                   </section>
+                )}
+                {canWrite && editingAccount && (
+                  <AccountEditor
+                    key={`${company}:${editingAccount._id}:${editingAccount.revision ?? 0}`}
+                    account={editingAccount}
+                    accounts={data.accounts}
+                    companyName={data.company.name}
+                    busy={busy}
+                    cancel={() => setEditingAccount(undefined)}
+                    save={async (changes, reason) => {
+                      if (
+                        await command("account.edit", {
+                          id: editingAccount._id,
+                          revision: editingAccount.revision ?? 0,
+                          data: changes,
+                          reason,
+                        })
+                      )
+                        setEditingAccount(undefined);
+                    }}
+                  />
                 )}
               </>
             )}
@@ -590,7 +645,12 @@ export function FinanceConsole({
                 </section>
                 {canWrite &&
                   entry.status === "draft" &&
-                  entry.sourceSystem === "manual" && (
+                  entry.sourceSystem === "manual" &&
+                  entry.postingOrigin !== "source" &&
+                  !(
+                    entry.postingOrigin === undefined &&
+                    entry.createdBy.startsWith("service:")
+                  ) && (
                     <JournalForm
                       key={`${entry._id}-${entry.revision}`}
                       accounts={data.accounts}
@@ -748,16 +808,37 @@ function JournalForm({
   submit: (data: unknown) => Promise<boolean>;
 }) {
   const [lines, setLines] = useState(
-    entry?.lines || [
-      { accountId: "", debitCents: 0, creditCents: 0, memo: "" },
-      { accountId: "", debitCents: 0, creditCents: 0, memo: "" },
+    entry?.lines.map((line) => ({
+      accountId: line.accountId,
+      memo: line.memo,
+      debit: centsToDollarInput(line.debitCents),
+      credit: centsToDollarInput(line.creditCents),
+    })) || [
+      { accountId: "", debit: "", credit: "", memo: "" },
+      { accountId: "", debit: "", credit: "", memo: "" },
     ],
   );
+  const [amountError, setAmountError] = useState("");
   const [sourceId] = useState(() => entry?.sourceId || crypto.randomUUID());
   const [saved, setSaved] = useState(false);
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
+    let amounts;
+    try {
+      amounts = lines.map((line) => ({
+        accountId: line.accountId,
+        memo: line.memo,
+        debitCents: dollarsToCents(line.debit),
+        creditCents: dollarsToCents(line.credit),
+      }));
+      setAmountError("");
+    } catch (error) {
+      setAmountError(
+        error instanceof Error ? error.message : "Invalid dollar amount",
+      );
+      return;
+    }
     if (
       await submit({
         transactionDate: f.get("date"),
@@ -766,7 +847,7 @@ function JournalForm({
         sourceType: entry?.sourceType || "journal",
         sourceId,
         sourceRevision: entry?.sourceRevision || "1",
-        lines,
+        lines: amounts,
       })
     )
       setSaved(true);
@@ -786,8 +867,10 @@ function JournalForm({
         {entry ? "Edit draft" : "New draft"} · {companyName}
       </h2>
       <p>
-        Enter exact whole cents (100 = $1.00). Debits and credits must balance.
+        Enter dollars and cents (for example, 125.50). Leave the unused side
+        blank or zero. Debits and credits must balance.
       </p>
+      {amountError && <p role="alert">{amountError}</p>}
       <form onSubmit={save}>
         <label>
           Transaction date
@@ -825,7 +908,18 @@ function JournalForm({
                 >
                   <option value="">Select account</option>
                   {accounts
-                    .filter((a) => a.active)
+                    .filter(
+                      (a) =>
+                        a._id === line.accountId &&
+                        (!a.active || a.allowManualPosting === false),
+                    )
+                    .map((a) => (
+                      <option key={a._id} value={a._id} disabled>
+                        {a.code} · {a.name} (unavailable for manual posting)
+                      </option>
+                    ))}
+                  {accounts
+                    .filter((a) => a.active && a.allowManualPosting !== false)
                     .map((a) => (
                       <option key={a._id} value={a._id}>
                         {a.code} · {a.name}
@@ -833,21 +927,19 @@ function JournalForm({
                     ))}
                 </select>
               </label>
-              {(["debitCents", "creditCents"] as const).map((side) => (
+              {(["debit", "credit"] as const).map((side) => (
                 <label key={side}>
-                  {side === "debitCents" ? "Debit cents" : "Credit cents"}
+                  {side === "debit" ? "Debit ($)" : "Credit ($)"}
                   <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    required
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    maxLength={32}
                     value={line[side]}
                     onChange={(e) =>
                       setLines(
                         lines.map((l, i) =>
-                          i === index
-                            ? { ...l, [side]: Number(e.target.value) }
-                            : l,
+                          i === index ? { ...l, [side]: e.target.value } : l,
                         ),
                       )
                     }
@@ -883,7 +975,7 @@ function JournalForm({
           onClick={() =>
             setLines([
               ...lines,
-              { accountId: "", debitCents: 0, creditCents: 0, memo: "" },
+              { accountId: "", debit: "", credit: "", memo: "" },
             ])
           }
         >

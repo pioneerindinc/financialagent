@@ -54,8 +54,28 @@ export const accountSchema = z
     subtype: z.string().max(100).default(""),
     parentId: id.optional(),
     active: z.boolean().default(true),
+    controlAccount: z.boolean().default(false),
+    allowManualPosting: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .transform((data) => ({
+    ...data,
+    allowManualPosting: data.allowManualPosting ?? !data.controlAccount,
+  }));
+export const accountEditSchema = z
+  .object({
+    name: text.optional(),
+    subtype: z.string().max(100).optional(),
+    parentId: id.nullable().optional(),
+    active: z.boolean().optional(),
+    controlAccount: z.boolean().optional(),
+    allowManualPosting: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (data) => Object.keys(data).length > 0,
+    "At least one account change is required",
+  );
 export const periodSchema = z
   .object({ startDate: date, endDate: date })
   .strict()

@@ -73,8 +73,8 @@ test("local sign-in and a fully attributed accounting cycle through the UI", asy
     .selectOption({
       label: `${marker.replace("DEV VALIDATION ", "DV")}-EQUITY · ${marker} EQUITY`,
     });
-  await page.getByLabel("Debit cents").nth(0).fill("12345");
-  await page.getByLabel("Credit cents").nth(1).fill("12345");
+  await page.getByLabel("Debit ($)", { exact: true }).nth(0).fill("123.45");
+  await page.getByLabel("Credit ($)", { exact: true }).nth(1).fill("123.45");
   await page.getByRole("button", { name: "Save balanced draft" }).click();
   await expect(page.getByText("Draft saved.", { exact: false })).toBeVisible();
   await page
@@ -110,13 +110,11 @@ test("local sign-in and a fully attributed accounting cycle through the UI", asy
   ).not.toContainText("$123.45");
   await withLocalDatabase(async (client) => {
     const db = client.db(DEV_DATABASE);
-    const audit = await db
-      .collection("audits")
-      .findOne({
-        companyId: company,
-        entityId: journalId,
-        action: "journal.post",
-      });
+    const audit = await db.collection("audits").findOne({
+      companyId: company,
+      entityId: journalId,
+      action: "journal.post",
+    });
     expect(audit?.createdBy).toBe("human:dev:local-finance");
     const journal = await db
       .collection<{ _id: string; status: string }>("journals")

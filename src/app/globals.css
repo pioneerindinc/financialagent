@@ -1,8 +1,8 @@
 @import "tailwindcss";
 .development-banner {
-  background: #fff0c4;
+  background: #ff0000;
   border-bottom: 2px solid #ad7414;
-  color: #4b350b;
+  color: #ffffff;
   padding: 12px 24px;
   display: flex;
   flex-wrap: wrap;
@@ -15,7 +15,7 @@
 }
 :root {
   font-family: Arial, Helvetica, sans-serif;
-  color: #18332f;
+  color: #111111;
   background: #f3f5f2;
 }
 * {
@@ -38,21 +38,21 @@ a:hover {
 aside {
   width: 250px;
   flex-shrink: 0;
-  background: #123d34;
-  color: #dae8dd;
+  background: #111111;
+  color: #ffffff;
   padding: 30px 22px;
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 aside a {
-  color: #dae8dd;
+  color: #ffffff;
   display: block;
   padding: 12px 0;
 }
 aside small {
   margin-top: auto;
-  color: #a9c1b7;
+  color: #ffffff;
 }
 .brand {
   font-size: 24px;
@@ -68,7 +68,7 @@ aside small {
   font-size: 10px;
   letter-spacing: 1.8px;
   font-weight: 700;
-  color: #65867a;
+  color: #ffffff;
   margin-bottom: 10px;
 }
 main {
@@ -163,7 +163,7 @@ form,
   margin-top: 20px;
 }
 button {
-  background: #176c5b;
+  background: #111111;
   color: white;
   padding: 11px 16px;
   border: 0;
@@ -223,7 +223,7 @@ small {
   font-size: 12px;
 }
 :focus-visible {
-  outline: 3px solid #bb852d;
+  outline: 3px solid #ff0000;
   outline-offset: 3px;
 }
 @media (max-width: 900px) {

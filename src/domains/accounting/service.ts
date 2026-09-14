@@ -7,6 +7,7 @@ import { authorize, type Actor } from "../../lib/auth/policy";
 import { Account, Audit, Company, Journal, Period } from "../../models";
 import {
   accountSchema,
+  accountEditSchema,
   date,
   id,
   periodSchema,
@@ -74,6 +75,7 @@ async function accountsValid(
   companyId: string,
   lines: { accountId: string }[],
   session: ClientSession,
+  manual = true,
 ) {
   const ids = [...new Set(lines.map((l) => l.accountId))];
   const count = await Account.countDocuments({
@@ -85,6 +87,86 @@ async function accountsValid(
     count === ids.length,
     "Every account must be active and belong to this company",
   );
+  if (manual)
+    assert(
+      !(await Account.exists({
+        companyId,
+        _id: { $in: ids },
+        allowManualPosting: false,
+      }).session(session)),
+      "Account does not allow manual posting",
+    );
+}
+function isManual(record: { postingOrigin?: string; createdBy?: string }) {
+  // Legacy provenance comes from server-written attribution, never sourceSystem input.
+  return record.postingOrigin
+    ? record.postingOrigin !== "source"
+    : !record.createdBy?.startsWith("service:");
+}
+
+export async function editAccount(
+  actor: Actor,
+  companyId: string,
+  accountId: string,
+  input: unknown,
+  revision: number,
+  reason: string,
+) {
+  const data = accountEditSchema.parse(input);
+  id.parse(accountId);
+  z.number().int().nonnegative().parse(revision);
+  const explanation = text.parse(reason);
+  return write(actor, companyId, "finance:write", async (session) => {
+    const record = await Account.findOne({ _id: accountId, companyId }).session(
+      session,
+    );
+    assert(record, "Account not found", 404);
+    assert(
+      (record.revision ?? 0) === revision,
+      "Account changed; reload before editing",
+      409,
+    );
+    const before = record.toObject();
+    const parent =
+      data.parentId === undefined ? record.parentId : data.parentId;
+    const seen = new Set<string>([accountId]);
+    let ancestor = parent;
+    while (ancestor) {
+      assert(!seen.has(ancestor), "Account parent cannot create a cycle");
+      seen.add(ancestor);
+      const found = await Account.findOne({
+        _id: ancestor,
+        companyId,
+        type: record.type,
+      }).session(session);
+      assert(found, "Parent must belong to company and have same type");
+      ancestor = found.parentId;
+    }
+    // Turning control on requires an explicit posting choice; never silently change policy on edit.
+    assert(
+      data.controlAccount !== true ||
+        record.controlAccount === true ||
+        data.allowManualPosting !== undefined,
+      "Choose manual-posting policy when enabling control account",
+    );
+    Object.assign(record, data, {
+      parentId: parent || undefined,
+      revision: revision + 1,
+      updatedBy: actorId(actor),
+    });
+    await record.save({ session });
+    await audit(
+      session,
+      actor,
+      companyId,
+      "account.edit",
+      record.id,
+      explanation,
+      before,
+      record.toObject(),
+    );
+    return record;
+  });
 }
 async function openPeriod(
   companyId: string,
@@ -235,7 +317,12 @@ export async function createDraft(
         );
         return existing;
       }
-      await accountsValid(companyId, data.lines, session);
+      await accountsValid(
+        companyId,
+        data.lines,
+        session,
+        actor.kind !== "service",
+      );
       const [record] = await Journal.create(
         [
           {
@@ -243,6 +330,7 @@ export async function createDraft(
             companyId,
             ...data,
             sourceHash: hash(data),
+            postingOrigin: actor.kind === "service" ? "source" : "manual",
             createdBy: actorId(actor),
             updatedBy: actorId(actor),
           },
@@ -281,7 +369,7 @@ export async function editDraft(
     }).session(session);
     assert(record, "Draft missing or changed; reload before editing", 409);
     assert(
-      record.sourceSystem === "manual",
+      record.sourceSystem === "manual" && isManual(record),
       "Imported drafts require a new source revision",
     );
     for (const key of [
@@ -338,7 +426,7 @@ export async function postJournal(
       sourceRevision: record.sourceRevision,
       lines: record.lines.map((l: { toObject(): unknown }) => l.toObject()),
     });
-    await accountsValid(companyId, record.lines, session);
+    await accountsValid(companyId, record.lines, session, isManual(record));
     await openPeriod(companyId, record.transactionDate, session);
     Object.assign(record, {
       status: "posted",
@@ -414,6 +502,7 @@ export async function reverseJournal(
           ...data,
           sourceHash: hash(data),
           reversalOf: journalId,
+          postingOrigin: "system",
           status: "posted",
           postedAt: new Date(),
           postingDate: new Date().toISOString().slice(0, 10),
