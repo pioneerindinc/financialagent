@@ -1,0 +1,896 @@
+"use client";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
+import { formatMoney } from "../lib/money";
+type Account = {
+  _id: string;
+  code: string;
+  name: string;
+  type: string;
+  subtype: string;
+  active: boolean;
+};
+type Entry = {
+  _id: string;
+  transactionDate: string;
+  description: string;
+  status: string;
+  revision: number;
+  reversalOf?: string;
+  reversedBy?: string;
+  sourceSystem: string;
+  sourceType: string;
+  sourceId: string;
+  sourceRevision: string;
+  lines: {
+    accountId: string;
+    debitCents: number;
+    creditCents: number;
+    memo: string;
+  }[];
+  createdBy: string;
+  postedBy?: string;
+};
+type Overview = {
+  company: { name: string };
+  accounts: Account[];
+  periods: {
+    _id: string;
+    startDate: string;
+    endDate: string;
+    status: string;
+  }[];
+  journals: Entry[];
+  postedCount: number;
+  draftCount: number;
+};
+type Report = {
+  rows: {
+    accountId: string;
+    code?: string;
+    name?: string;
+    transactionDate?: string;
+    journalId?: string;
+    description?: string;
+    debitCents: number;
+    creditCents: number;
+    runningBalanceCents?: number;
+    sourceSystem?: string;
+    sourceId?: string;
+  }[];
+  debitCents?: number;
+  creditCents?: number;
+};
+const today = () => new Date().toISOString().slice(0, 10);
+const links = [
+  ["/", "Overview"],
+  ["/companies", "Companies"],
+  ["/accounts", "Chart of Accounts"],
+  ["/periods", "Accounting periods"],
+  ["/journal", "Journal entries"],
+  ["/reports/trial-balance", "Trial Balance"],
+  ["/reports/general-ledger", "General Ledger"],
+];
+export function FinanceConsole({
+  view,
+  journalId,
+  companyIds,
+  canWrite,
+}: {
+  view: string;
+  journalId?: string;
+  companyIds: string[];
+  canWrite: boolean;
+}) {
+  const search = useSearchParams();
+  const requestedCompany = search.get("company") || "";
+  const [selectedCompany, setCompany] = useState<string>();
+  const company =
+    selectedCompany ??
+    (companyIds.includes(requestedCompany) ? requestedCompany : "");
+  const [data, setData] = useState<Overview>();
+  const [entry, setEntry] = useState<Entry>();
+  const [report, setReport] = useState<Report>();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [version, setVersion] = useState(0);
+  const [from, setFrom] = useState(`${today().slice(0, 4)}-01-01`);
+  const [to, setTo] = useState(today());
+  const [filter, setFilter] = useState("");
+  useEffect(() => {
+    if (!company) return;
+    const controller = new AbortController();
+    async function get(query: string) {
+      const response = await fetch(
+        `/api/finance?company=${encodeURIComponent(company)}${query}`,
+        { signal: controller.signal },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      return body;
+    }
+    Promise.all([
+      get(""),
+      view === "detail"
+        ? get(`&view=journal&id=${encodeURIComponent(journalId || "")}`)
+        : Promise.resolve(undefined),
+      ["trial-balance", "general-ledger"].includes(view)
+        ? get(
+            `&view=${view}&asOf=${to}&from=${from}&to=${to}&account=${encodeURIComponent(filter)}`,
+          )
+        : Promise.resolve(undefined),
+    ])
+      .then(([overview, detail, result]) => {
+        if (controller.signal.aborted) return;
+        setError("");
+        setData(overview);
+        setEntry(detail);
+        setReport(result);
+      })
+      .catch((e) => {
+        if (e.name !== "AbortError") setError(e.message);
+      });
+    return () => controller.abort();
+  }, [company, view, journalId, version, from, to, filter]);
+  async function command(action: string, payload: Record<string, unknown>) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/finance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: company, action, ...payload }),
+      });
+      const result = await res.json();
+      if (!res.ok)
+        throw new Error(
+          result.issues
+            ? `${result.error}: ${result.issues.map((i: { message: string }) => i.message).join(", ")}`
+            : result.error,
+        );
+      setVersion((v) => v + 1);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  function choose(value: string) {
+    setData(undefined);
+    setEntry(undefined);
+    setReport(undefined);
+    setFilter("");
+    setError("");
+    setCompany(value);
+    const url = new URL(window.location.href);
+    url.searchParams.set("company", value);
+    window.history.replaceState(null, "", url);
+  }
+  const companyQuery = company ? `?company=${encodeURIComponent(company)}` : "";
+  const title =
+    view === "detail"
+      ? "Journal detail"
+      : links.find(
+          ([path]) =>
+            path ===
+            (view === "dashboard"
+              ? "/"
+              : ["trial-balance", "general-ledger"].includes(view)
+                ? `/reports/${view}`
+                : `/${view}`),
+        )?.[1];
+  function journals() {
+    return (
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Description</th>
+            <th>Status</th>
+            <th>Entry</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data?.journals.map((j) => (
+            <tr key={j._id}>
+              <td>{j.transactionDate}</td>
+              <td>{j.description}</td>
+              <td>
+                <span className="badge">{j.status}</span>
+              </td>
+              <td>
+                <Link href={`/journal/${j._id}${companyQuery}`}>
+                  Review entry →
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+  return (
+    <div className="workspace">
+      <aside>
+        <div className="brand">
+          FA <span>FinancialAgent</span>
+        </div>
+        <p className="eyebrow">ACCOUNTING WORKSPACE</p>
+        <nav>
+          {links.map(([href, label]) => (
+            <Link key={href} href={`${href}${companyQuery}`}>
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <small>USD · Company books kept separate</small>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <p className="eyebrow">COMPANY CONTEXT</p>
+            <strong>
+              {data?.company.name || "Select a company to continue"}
+            </strong>
+          </div>
+          <label>
+            Active company
+            <select
+              aria-label="Active company"
+              value={company}
+              disabled={busy}
+              onChange={(e) => choose(e.target.value)}
+            >
+              <option value="">Choose company</option>
+              {companyIds.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+        </header>
+        <h1>{title}</h1>
+        <p className="subtitle">
+          {data?.company.name || "An explicit company selection is required."}
+        </p>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        {company && !data && !error && <p>Loading company records…</p>}
+        {data && (
+          <>
+            {view === "companies" && (
+              <section>
+                <h2>{data.company.name}</h2>
+                <p>
+                  All accounts, journals, periods, and reports on this page
+                  belong to this company. Use the selector above to change
+                  books.
+                </p>
+              </section>
+            )}
+            {view === "dashboard" && (
+              <>
+                <div className="metrics">
+                  <section>
+                    <small>Accounts</small>
+                    <h2>{data.accounts.length}</h2>
+                  </section>
+                  <section>
+                    <small>Posted journals</small>
+                    <h2>{data.postedCount}</h2>
+                  </section>
+                  <section>
+                    <small>Draft journals</small>
+                    <h2>{data.draftCount}</h2>
+                  </section>
+                </div>
+                <section>
+                  <h2>Open accounting periods</h2>
+                  {data.periods
+                    .filter((p) => p.status === "open")
+                    .map((p) => (
+                      <p key={p._id}>
+                        {p.startDate} — {p.endDate}
+                      </p>
+                    ))}
+                  {!data.periods.some((p) => p.status === "open") && (
+                    <p>No open periods. Create a period before posting.</p>
+                  )}
+                </section>
+                <section>
+                  <h2>Recent journal activity</h2>
+                  {journals()}
+                </section>
+              </>
+            )}
+            {view === "accounts" && (
+              <>
+                <section>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Code</th>
+                        <th>Account</th>
+                        <th>Type</th>
+                        <th>Subtype</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.accounts.map((a) => (
+                        <tr key={a._id}>
+                          <td>{a.code}</td>
+                          <td>{a.name}</td>
+                          <td>{a.type}</td>
+                          <td>{a.subtype}</td>
+                          <td>{a.active ? "Active" : "Inactive"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
+                {canWrite && (
+                  <section>
+                    <h2>Create account · {data.company.name}</h2>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const form = e.currentTarget;
+                        const f = new FormData(form);
+                        if (
+                          await command("account.create", {
+                            data: {
+                              code: f.get("code"),
+                              name: f.get("name"),
+                              type: f.get("type"),
+                              subtype: f.get("subtype"),
+                            },
+                          })
+                        )
+                          form.reset();
+                      }}
+                    >
+                      <label>
+                        Code
+                        <input name="code" required />
+                      </label>
+                      <label>
+                        Name
+                        <input name="name" required />
+                      </label>
+                      <label>
+                        Type
+                        <select name="type" aria-label="Type">
+                          {[
+                            "Asset",
+                            "Liability",
+                            "Equity",
+                            "Revenue",
+                            "Expense",
+                          ].map((t) => (
+                            <option key={t}>{t}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Subtype
+                        <input name="subtype" />
+                      </label>
+                      <button disabled={busy}>Create account</button>
+                    </form>
+                  </section>
+                )}
+              </>
+            )}
+            {view === "periods" && (
+              <>
+                <section>
+                  {data.periods.map((p) => (
+                    <div className="period" key={p._id}>
+                      <span>
+                        {p.startDate} — {p.endDate} · {p.status}
+                      </span>
+                      {canWrite && p.status === "open" && (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const f = new FormData(e.currentTarget);
+                            if (
+                              window.confirm(
+                                `Close this period for ${data.company.name}? Further posting to these dates will be blocked.`,
+                              )
+                            )
+                              void command("period.close", {
+                                id: p._id,
+                                reason: f.get("reason"),
+                              });
+                          }}
+                        >
+                          <input
+                            name="reason"
+                            aria-label="Closure reason"
+                            placeholder="Closure reason"
+                            required
+                          />
+                          <button disabled={busy}>Close period</button>
+                        </form>
+                      )}
+                    </div>
+                  ))}
+                </section>
+                {canWrite && (
+                  <section>
+                    <h2>Open a period · {data.company.name}</h2>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const f = new FormData(e.currentTarget);
+                        void command("period.create", {
+                          data: {
+                            startDate: f.get("start"),
+                            endDate: f.get("end"),
+                          },
+                        });
+                      }}
+                    >
+                      <label>
+                        Start
+                        <input name="start" type="date" required />
+                      </label>
+                      <label>
+                        End
+                        <input name="end" type="date" required />
+                      </label>
+                      <button disabled={busy}>Create period</button>
+                    </form>
+                  </section>
+                )}
+              </>
+            )}
+            {view === "journal" && (
+              <>
+                <section>
+                  {journals()}
+                  <small>
+                    Most recent 100 entries. Reports include all posted history.
+                  </small>
+                </section>
+                {canWrite && (
+                  <JournalForm
+                    key={company}
+                    accounts={data.accounts}
+                    companyName={data.company.name}
+                    busy={busy}
+                    submit={(value) =>
+                      command("journal.create", { data: value })
+                    }
+                  />
+                )}
+              </>
+            )}
+            {view === "detail" && entry && (
+              <>
+                <section>
+                  <h2>{entry.description}</h2>
+                  <p>
+                    {entry._id} · {entry.status} · {entry.transactionDate}
+                  </p>
+                  <p>
+                    Source: {entry.sourceSystem} / {entry.sourceType} /{" "}
+                    {entry.sourceId} / {entry.sourceRevision}
+                  </p>
+                  <p>
+                    Created by {entry.createdBy}
+                    {entry.postedBy && ` · Posted by ${entry.postedBy}`}
+                  </p>
+                  {entry.reversalOf && (
+                    <p>
+                      Reversal of{" "}
+                      <Link
+                        href={`/journal/${entry.reversalOf}${companyQuery}`}
+                      >
+                        {entry.reversalOf}
+                      </Link>
+                    </p>
+                  )}
+                  {entry.reversedBy && (
+                    <p>
+                      Reversed by{" "}
+                      <Link
+                        href={`/journal/${entry.reversedBy}${companyQuery}`}
+                      >
+                        {entry.reversedBy}
+                      </Link>
+                    </p>
+                  )}
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Account</th>
+                        <th>Debit</th>
+                        <th>Credit</th>
+                        <th>Memo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entry.lines.map((l, i) => (
+                        <tr key={i}>
+                          <td>
+                            {data.accounts.find((a) => a._id === l.accountId)
+                              ?.name || l.accountId}
+                          </td>
+                          <td>{formatMoney(l.debitCents)}</td>
+                          <td>{formatMoney(l.creditCents)}</td>
+                          <td>{l.memo}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {canWrite && entry.status === "draft" && (
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Post this reviewed journal to ${data.company.name}? Posted lines cannot be edited.`,
+                          )
+                        )
+                          void command("journal.post", {
+                            id: entry._id,
+                            revision: entry.revision,
+                          });
+                      }}
+                    >
+                      Post reviewed journal
+                    </button>
+                  )}
+                  {canWrite &&
+                    entry.status === "posted" &&
+                    !entry.reversedBy &&
+                    !entry.reversalOf && (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const f = new FormData(e.currentTarget);
+                          if (
+                            window.confirm(
+                              `Post equal and opposite lines to ${data.company.name}?`,
+                            )
+                          )
+                            void command("journal.reverse", {
+                              id: entry._id,
+                              date: f.get("date"),
+                              reason: f.get("reason"),
+                            });
+                        }}
+                      >
+                        <label>
+                          Reversal date
+                          <input
+                            type="date"
+                            name="date"
+                            required
+                            defaultValue={today()}
+                          />
+                        </label>
+                        <label>
+                          Reason
+                          <input name="reason" required />
+                        </label>
+                        <button disabled={busy}>Reverse journal</button>
+                      </form>
+                    )}
+                </section>
+                {canWrite &&
+                  entry.status === "draft" &&
+                  entry.sourceSystem === "manual" && (
+                    <JournalForm
+                      key={`${entry._id}-${entry.revision}`}
+                      accounts={data.accounts}
+                      companyName={data.company.name}
+                      busy={busy}
+                      entry={entry}
+                      submit={(value) =>
+                        command("journal.edit", {
+                          id: entry._id,
+                          revision: entry.revision,
+                          data: value,
+                        })
+                      }
+                    />
+                  )}
+              </>
+            )}
+            {["trial-balance", "general-ledger"].includes(view) && (
+              <section>
+                <div className="filters">
+                  {view === "general-ledger" && (
+                    <>
+                      <label>
+                        From
+                        <input
+                          type="date"
+                          value={from}
+                          onChange={(e) => {
+                            setReport(undefined);
+                            setFrom(e.target.value);
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Account
+                        <select
+                          aria-label="Account"
+                          value={filter}
+                          onChange={(e) => {
+                            setReport(undefined);
+                            setFilter(e.target.value);
+                          }}
+                        >
+                          <option value="">All accounts</option>
+                          {data.accounts.map((a) => (
+                            <option key={a._id} value={a._id}>
+                              {a.code} · {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
+                  )}
+                  <label>
+                    {view === "trial-balance" ? "As of" : "Through"}
+                    <input
+                      type="date"
+                      value={to}
+                      onChange={(e) => {
+                        setReport(undefined);
+                        setTo(e.target.value);
+                      }}
+                    />
+                  </label>
+                </div>
+                <p>Posted entries only · Transaction date basis · USD</p>
+                {report && (
+                  <table>
+                    <thead>
+                      <tr>
+                        {view === "general-ledger" && (
+                          <>
+                            <th>Date / Entry</th>
+                            <th>Description / Source</th>
+                          </>
+                        )}
+                        <th>Account</th>
+                        <th>Debit</th>
+                        <th>Credit</th>
+                        {view === "general-ledger" && (
+                          <th>Running debit balance</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.rows.map((r, i) => (
+                        <tr key={i}>
+                          {view === "general-ledger" && (
+                            <>
+                              <td>
+                                {r.transactionDate}
+                                <br />
+                                <Link
+                                  href={`/journal/${r.journalId}${companyQuery}`}
+                                >
+                                  View journal
+                                </Link>
+                              </td>
+                              <td>
+                                {r.description}
+                                <br />
+                                <small>
+                                  {r.sourceSystem} / {r.sourceId}
+                                </small>
+                              </td>
+                            </>
+                          )}
+                          <td>
+                            {r.code ||
+                              data.accounts.find((a) => a._id === r.accountId)
+                                ?.code}{" "}
+                            ·{" "}
+                            {r.name ||
+                              data.accounts.find((a) => a._id === r.accountId)
+                                ?.name}
+                          </td>
+                          <td>{formatMoney(r.debitCents)}</td>
+                          <td>{formatMoney(r.creditCents)}</td>
+                          {view === "general-ledger" && (
+                            <td>{formatMoney(r.runningBalanceCents || 0)}</td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    {view === "trial-balance" && (
+                      <tfoot>
+                        <tr>
+                          <th>Total</th>
+                          <th>{formatMoney(report.debitCents || 0)}</th>
+                          <th>{formatMoney(report.creditCents || 0)}</th>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                )}
+              </section>
+            )}
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+function JournalForm({
+  accounts,
+  companyName,
+  busy,
+  entry,
+  submit,
+}: {
+  accounts: Account[];
+  companyName: string;
+  busy: boolean;
+  entry?: Entry;
+  submit: (data: unknown) => Promise<boolean>;
+}) {
+  const [lines, setLines] = useState(
+    entry?.lines || [
+      { accountId: "", debitCents: 0, creditCents: 0, memo: "" },
+      { accountId: "", debitCents: 0, creditCents: 0, memo: "" },
+    ],
+  );
+  const [sourceId] = useState(() => entry?.sourceId || crypto.randomUUID());
+  const [saved, setSaved] = useState(false);
+  async function save(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    if (
+      await submit({
+        transactionDate: f.get("date"),
+        description: f.get("description"),
+        sourceSystem: entry?.sourceSystem || "manual",
+        sourceType: entry?.sourceType || "journal",
+        sourceId,
+        sourceRevision: entry?.sourceRevision || "1",
+        lines,
+      })
+    )
+      setSaved(true);
+  }
+  if (saved && !entry)
+    return (
+      <section>
+        <p>Draft saved. Open it from the journal list to review and post.</p>
+        <button onClick={() => window.location.reload()}>
+          Create another draft
+        </button>
+      </section>
+    );
+  return (
+    <section>
+      <h2>
+        {entry ? "Edit draft" : "New draft"} · {companyName}
+      </h2>
+      <p>
+        Enter exact whole cents (100 = $1.00). Debits and credits must balance.
+      </p>
+      <form onSubmit={save}>
+        <label>
+          Transaction date
+          <input
+            name="date"
+            type="date"
+            required
+            defaultValue={entry?.transactionDate || today()}
+          />
+        </label>
+        <label>
+          Description
+          <input
+            name="description"
+            required
+            defaultValue={entry?.description}
+          />
+        </label>
+        <div className="lines">
+          {lines.map((line, index) => (
+            <div className="line" key={index}>
+              <label>
+                Account
+                <select
+                  aria-label="Account"
+                  required
+                  value={line.accountId}
+                  onChange={(e) =>
+                    setLines(
+                      lines.map((l, i) =>
+                        i === index ? { ...l, accountId: e.target.value } : l,
+                      ),
+                    )
+                  }
+                >
+                  <option value="">Select account</option>
+                  {accounts
+                    .filter((a) => a.active)
+                    .map((a) => (
+                      <option key={a._id} value={a._id}>
+                        {a.code} · {a.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {(["debitCents", "creditCents"] as const).map((side) => (
+                <label key={side}>
+                  {side === "debitCents" ? "Debit cents" : "Credit cents"}
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    required
+                    value={line[side]}
+                    onChange={(e) =>
+                      setLines(
+                        lines.map((l, i) =>
+                          i === index
+                            ? { ...l, [side]: Number(e.target.value) }
+                            : l,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+              ))}
+              <label>
+                Memo
+                <input
+                  value={line.memo}
+                  onChange={(e) =>
+                    setLines(
+                      lines.map((l, i) =>
+                        i === index ? { ...l, memo: e.target.value } : l,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              {lines.length > 2 && (
+                <button
+                  type="button"
+                  onClick={() => setLines(lines.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            setLines([
+              ...lines,
+              { accountId: "", debitCents: 0, creditCents: 0, memo: "" },
+            ])
+          }
+        >
+          Add line
+        </button>
+        <button disabled={busy}>Save balanced draft</button>
+      </form>
+    </section>
+  );
+}
