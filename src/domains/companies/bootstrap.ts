@@ -1,7 +1,7 @@
 import { Company, ensureIndexes } from "../../models";
 import { connect } from "../../lib/db";
 export const companies = [
-  ["Pioneer", "Pioneer Industries", "Pioneer"],
+  ["pioneer-industries", "Pioneer Industries", "Pioneer"],
   ["317-graphics", "317 Graphics & Apparel", "317"],
   ["headquarters-on-main", "Headquarters on Main", "HQ"],
   ["fish-properties", "Fish Properties", "Fish"],
