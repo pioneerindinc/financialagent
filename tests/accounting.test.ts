@@ -16,6 +16,7 @@ import {
   editAccount,
   createDraft,
   createPeriod,
+  setupPioneer2027Periods,
   closePeriod,
   editDraft,
   postJournal,
@@ -96,6 +97,321 @@ beforeEach(async () => {
   ).id;
 });
 describe("durable accounting core", () => {
+  it("keeps posting true for new and raw legacy accounts without migration", async () => {
+    expect((await Account.findById(debit)).postingAccount).toBe(true);
+    await Account.updateOne({ _id: debit }, { $unset: { postingAccount: "" } });
+    expect((await Account.findById(debit)).postingAccount).toBe(true);
+    const entry = await createDraft(human, company, draft());
+    await postJournal(human, company, entry.id, 0);
+  });
+  it("creates headers independently of control status and refuses manual permission on headers", async () => {
+    const header = await createAccount(human, company, {
+      code: "1500",
+      name: "Fixed assets",
+      type: "Asset",
+      postingAccount: false,
+    });
+    expect(header.postingAccount).toBe(false);
+    expect(header.controlAccount).toBe(false);
+    expect(header.allowManualPosting).toBe(false);
+    await expect(
+      createAccount(human, company, {
+        code: "1501",
+        name: "Invalid",
+        type: "Asset",
+        postingAccount: false,
+        allowManualPosting: true,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      editAccount(
+        human,
+        company,
+        header.id,
+        { allowManualPosting: true },
+        0,
+        "Invalid policy",
+      ),
+    ).rejects.toThrow("Non-Posting");
+    const child = await createAccount(human, company, {
+      code: "1510",
+      name: "Equipment",
+      type: "Asset",
+      parentId: header.id,
+    });
+    expect(child.postingAccount).toBe(true);
+    expect(child.parentId).toBe(header.id);
+  });
+  it("rejects headers for manual and authenticated source drafts regardless of source labels", async () => {
+    await editAccount(
+      human,
+      company,
+      debit,
+      { postingAccount: false, allowManualPosting: false },
+      0,
+      "Organizational header",
+    );
+    const source: Actor = {
+      id: "erp",
+      kind: "service",
+      companies: [company],
+      scopes: ["finance:source:write"],
+    };
+    for (const actor of [human, source]) {
+      await expect(
+        createDraft(actor, company, draft({ sourceSystem: "erp" })),
+      ).rejects.toThrow("Non-Posting");
+    }
+    expect(await Journal.countDocuments()).toBe(0);
+  });
+  it("prevents conversion while any manual or source draft references the account", async () => {
+    const source: Actor = {
+      id: "erp",
+      kind: "service",
+      companies: [company],
+      scopes: ["finance:source:write"],
+    };
+    for (const actor of [human, source]) {
+      const entry = await createDraft(actor, company, draft());
+      await expect(
+        editAccount(
+          human,
+          company,
+          debit,
+          { postingAccount: false, allowManualPosting: false },
+          0,
+          "Unsafe header",
+        ),
+      ).rejects.toMatchObject({ status: 409 });
+      expect((await Account.findById(debit)).postingAccount).toBe(true);
+      expect(await Audit.countDocuments({ action: "account.edit" })).toBe(0);
+      await postJournal(human, company, entry.id, 0);
+    }
+    await editAccount(
+      human,
+      company,
+      debit,
+      { postingAccount: false, allowManualPosting: false },
+      0,
+      "Resolved drafts",
+    );
+  });
+  it("serializes header conversion against new drafts", async () => {
+    const results = await Promise.allSettled([
+      createDraft(human, company, draft()),
+      editAccount(
+        human,
+        company,
+        debit,
+        { postingAccount: false, allowManualPosting: false },
+        0,
+        "Concurrent policy",
+      ),
+    ]);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      (await Account.findById(debit)).postingAccount === false &&
+        (await Journal.exists({ status: "draft", "lines.accountId": debit })),
+    ).toBeFalsy();
+  });
+  it("rechecks header policy at manual edit and final human/source review", async () => {
+    const manualInput = draft();
+    const entry = await createDraft(human, company, manualInput);
+    const source: Actor = {
+      id: "erp",
+      kind: "service",
+      companies: [company],
+      scopes: ["finance:source:write"],
+    };
+    const imported = await createDraft(source, company, draft());
+    // Fixture simulates out-of-band corruption; governed edits cannot make this transition.
+    await Account.updateOne(
+      { _id: debit },
+      { $set: { postingAccount: false } },
+    );
+    await expect(
+      editDraft(human, company, entry.id, manualInput, 0),
+    ).rejects.toThrow("Non-Posting");
+    for (const record of [entry, imported])
+      await expect(postJournal(human, company, record.id, 0)).rejects.toThrow(
+        "Non-Posting",
+      );
+  });
+  it("preserves history and permits only exact reversal after conversion to a header", async () => {
+    const input = draft();
+    const entry = await createDraft(human, company, input);
+    await postJournal(human, company, entry.id, 0);
+    const original = (await Journal.findById(entry.id)).toObject();
+    await editAccount(
+      human,
+      company,
+      debit,
+      { postingAccount: false, allowManualPosting: false },
+      0,
+      "Retired posting account",
+    );
+    const change = await Audit.findOne({
+      action: "account.edit",
+      entityId: debit,
+    });
+    expect(change.before.postingAccount).toBe(true);
+    expect(change.after.postingAccount).toBe(false);
+    expect(
+      (await trialBalance(human, company, "2026-01-31")).rows.find(
+        (row) => row.accountId === debit,
+      )?.debitCents,
+    ).toBe(12500);
+    expect((await createDraft(human, company, input)).id).toBe(entry.id);
+    const reversal = await reverseJournal(
+      human,
+      company,
+      entry.id,
+      "2026-01-20",
+      "Exact historical correction",
+    );
+    expect(reversal.lines[0].creditCents).toBe(12500);
+    expect((await Journal.findById(entry.id)).toObject()).toEqual(original);
+    expect((await trialBalance(human, company, "2026-01-31")).debitCents).toBe(
+      0,
+    );
+    await expect(
+      editAccount(human, company, debit, { postingAccount: true }, 0, "Stale"),
+    ).rejects.toMatchObject({ status: 409 });
+    await editAccount(
+      human,
+      company,
+      debit,
+      { postingAccount: true, allowManualPosting: true },
+      1,
+      "Restore posting",
+    );
+    await createDraft(human, company, draft());
+  });
+  it("creates only twelve 2027 months and repeat setup preserves closed periods byte-for-byte", async () => {
+    await Period.deleteMany({});
+    expect(await Period.countDocuments()).toBe(0);
+    expect(
+      await setupPioneer2027Periods(human, company, "Approved calendar setup"),
+    ).toMatchObject({ created: 12, existing: 0 });
+    const periods = await Period.find({ companyId: company }).sort({
+      startDate: 1,
+    });
+    expect(periods).toHaveLength(12);
+    expect(periods[0].startDate).toBe("2027-01-01");
+    expect(periods[1].endDate).toBe("2027-02-28");
+    expect(periods[11].endDate).toBe("2027-12-31");
+    expect(periods.every((p) => p.status === "open")).toBe(true);
+    await closePeriod(human, company, periods[0].id, "Fixture close");
+    const before = await Period.find({}).sort({ startDate: 1 }).lean();
+    expect(
+      await setupPioneer2027Periods(human, company, "Repeat"),
+    ).toMatchObject({ created: 0, existing: 12 });
+    expect(await Period.find({}).sort({ startDate: 1 }).lean()).toEqual(before);
+    expect(
+      await Audit.countDocuments({
+        action: "period.create",
+        reason: "Approved calendar setup",
+      }),
+    ).toBe(12);
+    expect(
+      await Period.countDocuments({ startDate: { $lt: "2027-01-01" } }),
+    ).toBe(0);
+    expect(await Journal.countDocuments()).toBe(0);
+  });
+  it("fills missing 2027 months without modifying exact existing months or another company", async () => {
+    await createPeriod(human, company, {
+      startDate: "2027-02-01",
+      endDate: "2027-02-28",
+    });
+    const otherPeriod = await createPeriod(human, other, {
+      startDate: "2027-01-01",
+      endDate: "2027-12-31",
+    });
+    expect(
+      await setupPioneer2027Periods(human, company, "Fill calendar"),
+    ).toMatchObject({ created: 11, existing: 1 });
+    expect((await Period.findById(otherPeriod.id)).status).toBe("open");
+    expect(await Period.countDocuments({ companyId: other })).toBe(1);
+    expect(
+      await Period.countDocuments({
+        companyId: company,
+        startDate: "2026-01-01",
+      }),
+    ).toBe(1);
+  });
+  it("rejects overlaps atomically and uses normal overlap rules afterward", async () => {
+    const conflict = await createPeriod(human, company, {
+      startDate: "2027-12-15",
+      endDate: "2028-01-15",
+    });
+    const before = await Period.find({}).lean();
+    await expect(
+      setupPioneer2027Periods(human, company, "Conflicting setup"),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await Period.find({}).lean()).toEqual(before);
+    await Period.deleteOne({ _id: conflict.id });
+    await setupPioneer2027Periods(human, company, "Approved calendar");
+    await expect(
+      createPeriod(human, company, {
+        startDate: "2027-01-15",
+        endDate: "2027-02-15",
+      }),
+    ).rejects.toThrow("overlap");
+  });
+  it("serializes simultaneous calendar setup and rolls back on audit failure", async () => {
+    const failAudit = vi
+      .spyOn(Audit, "create")
+      .mockRejectedValueOnce(new Error("Fixture audit failure"));
+    try {
+      await expect(
+        setupPioneer2027Periods(human, company, "Audit failure"),
+      ).rejects.toThrow("Fixture audit failure");
+    } finally {
+      failAudit.mockRestore();
+    }
+    expect(
+      await Period.countDocuments({ startDate: { $gte: "2027-01-01" } }),
+    ).toBe(0);
+    const results = await Promise.all([
+      setupPioneer2027Periods(human, company, "Concurrent one"),
+      setupPioneer2027Periods(human, company, "Concurrent two"),
+    ]);
+    expect(
+      results.map((result) => result.created).sort((a, b) => a - b),
+    ).toEqual([0, 12]);
+  });
+  it("requires authorized Pioneer calendar setup and a nonblank reason", async () => {
+    for (const actor of [
+      { ...human, companies: [other] },
+      { ...human, scopes: ["finance:read"] },
+      { ...human, kind: "service" as const },
+    ])
+      await expect(
+        setupPioneer2027Periods(actor, company, "Denied"),
+      ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      setupPioneer2027Periods(human, other, "Wrong company"),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      setupPioneer2027Periods(human, company, " "),
+    ).rejects.toThrow();
+    await Company.updateOne(
+      { _id: company },
+      { $set: { fiscalYearStart: "07-01" } },
+    );
+    try {
+      await expect(
+        setupPioneer2027Periods(human, company, "Noncalendar"),
+      ).rejects.toMatchObject({ status: 409 });
+    } finally {
+      await Company.updateOne(
+        { _id: company },
+        { $set: { fiscalYearStart: "01-01" } },
+      );
+    }
+  });
   it("rolls back account edits if their audit cannot be persisted", async () => {
     const failure = vi
       .spyOn(Audit, "create")

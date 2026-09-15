@@ -8,6 +8,9 @@ import { DateInput } from "./date-input";
 import { formatDate } from "../lib/dates";
 import { AccountCreateHeading } from "./account-number-guide";
 import accountGuideStyles from "./account-number-guide.module.css";
+import { accountHierarchy } from "../lib/account-hierarchy";
+import { PioneerPeriodSetup } from "./period-setup";
+import { PIONEER_COMPANY } from "../lib/accounting-cutover";
 type Account = {
   _id: string;
   code: string;
@@ -15,6 +18,7 @@ type Account = {
   type: string;
   subtype: string;
   active: boolean;
+  postingAccount?: boolean;
   parentId?: string;
   controlAccount?: boolean;
   allowManualPosting?: boolean;
@@ -100,6 +104,7 @@ export function FinanceConsole({
   const [selectedCompany, setCompany] = useState<string>();
   const [editingAccount, setEditingAccount] = useState<Account>();
   const [accountFormVersion, setAccountFormVersion] = useState(0);
+  const [accountType, setAccountType] = useState("Asset");
   const company =
     selectedCompany ??
     (companyIds.includes(requestedCompany) ? requestedCompany : "");
@@ -352,31 +357,43 @@ export function FinanceConsole({
                       </tr>
                     </thead>
                     <tbody>
-                      {data.accounts.map((a) => (
-                        <tr key={a._id}>
-                          <td>{a.code}</td>
-                          <td>{a.name}</td>
-                          <td>{a.type}</td>
-                          <td>{a.subtype}</td>
-                          <td>{a.active ? "Active" : "Inactive"}</td>
-                          <td>
-                            {a.controlAccount === true ? "Control · " : ""}
-                            {a.allowManualPosting === false
-                              ? "No manual posting"
-                              : "Manual posting allowed"}
-                          </td>
-                          {canWrite && (
-                            <td>
-                              <button
-                                disabled={busy}
-                                onClick={() => setEditingAccount(a)}
-                              >
-                                Edit {a.code}
-                              </button>
+                      {accountHierarchy(data.accounts).map(
+                        ({ account: a, depth }) => (
+                          <tr key={a._id}>
+                            <td>{a.code}</td>
+                            <td
+                              style={{
+                                paddingLeft: `${12 + Math.min(depth, 8) * 18}px`,
+                              }}
+                            >
+                              {depth > 0 && <span aria-hidden="true">↳ </span>}
+                              {a.name}
                             </td>
-                          )}
-                        </tr>
-                      ))}
+                            <td>{a.type}</td>
+                            <td>{a.subtype}</td>
+                            <td>{a.active ? "Active" : "Inactive"}</td>
+                            <td>
+                              {a.postingAccount === false
+                                ? "Header / Non-Posting · "
+                                : "Posting account · "}
+                              {a.controlAccount === true ? "Control · " : ""}
+                              {a.allowManualPosting === false
+                                ? "No manual posting"
+                                : "Manual posting allowed"}
+                            </td>
+                            {canWrite && (
+                              <td>
+                                <button
+                                  disabled={busy}
+                                  onClick={() => setEditingAccount(a)}
+                                >
+                                  Edit {a.code}
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ),
+                      )}
                     </tbody>
                   </table>
                 </section>
@@ -395,12 +412,17 @@ export function FinanceConsole({
                               name: f.get("name"),
                               type: f.get("type"),
                               subtype: f.get("subtype"),
+                              ...(f.get("parentId")
+                                ? { parentId: f.get("parentId") }
+                                : {}),
                               controlAccount: f.has("controlAccount"),
+                              postingAccount: f.has("postingAccount"),
                               allowManualPosting: f.has("allowManualPosting"),
                             },
                           })
                         ) {
                           form.reset();
+                          setAccountType("Asset");
                           setAccountFormVersion((v) => v + 1);
                         }
                       }}
@@ -415,7 +437,14 @@ export function FinanceConsole({
                       </label>
                       <label>
                         Type
-                        <select name="type" aria-label="Type">
+                        <select
+                          name="type"
+                          aria-label="Type"
+                          value={accountType}
+                          onChange={(event) =>
+                            setAccountType(event.target.value)
+                          }
+                        >
                           {[
                             "Asset",
                             "Liability",
@@ -434,6 +463,24 @@ export function FinanceConsole({
                       <AccountGovernance
                         key={`${company}:${accountFormVersion}`}
                       />
+                      <label>
+                        Parent account
+                        <select
+                          name="parentId"
+                          aria-label="Parent account"
+                          key={`${company}:${accountType}:${accountFormVersion}`}
+                          defaultValue=""
+                        >
+                          <option value="">No parent</option>
+                          {data.accounts
+                            .filter((account) => account.type === accountType)
+                            .map((account) => (
+                              <option key={account._id} value={account._id}>
+                                {account.code} · {account.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
                       <button disabled={busy}>Create account</button>
                     </form>
                   </section>
@@ -463,6 +510,15 @@ export function FinanceConsole({
             )}
             {view === "periods" && (
               <>
+                {company === PIONEER_COMPANY && (
+                  <PioneerPeriodSetup
+                    key={company}
+                    periods={data.periods}
+                    canWrite={canWrite}
+                    busy={busy}
+                    setup={(reason) => command("period.setup2027", { reason })}
+                  />
+                )}
                 <section>
                   {data.periods.map((p) => (
                     <div className="period" key={p._id}>
@@ -925,7 +981,9 @@ function JournalForm({
                     .filter(
                       (a) =>
                         a._id === line.accountId &&
-                        (!a.active || a.allowManualPosting === false),
+                        (!a.active ||
+                          a.postingAccount === false ||
+                          a.allowManualPosting === false),
                     )
                     .map((a) => (
                       <option key={a._id} value={a._id} disabled>
@@ -933,7 +991,12 @@ function JournalForm({
                       </option>
                     ))}
                   {accounts
-                    .filter((a) => a.active && a.allowManualPosting !== false)
+                    .filter(
+                      (a) =>
+                        a.active &&
+                        a.postingAccount !== false &&
+                        a.allowManualPosting !== false,
+                    )
                     .map((a) => (
                       <option key={a._id} value={a._id}>
                         {a.code} · {a.name}

@@ -2,7 +2,7 @@
 
 No import or authority cutover has occurred. QuickBooks remains the current accounting authority until reconciliation and explicit business sign-off.
 
-1. Choose a cutoff date per company, preserve exports and agree whether to migrate history or opening balances plus open items.
+1. Pioneer Industries: QuickBooks is official through 2026-12-31; FinancialAgent is planned authoritative beginning 2027-01-01, contingent on reconciliation and explicit sign-off. Other company dates require separate approval. Preserve exports and agree whether to migrate history or opening balances plus open items.
 2. Approve chart-of-accounts mapping, account types and company mapping. Preserve original external IDs and migration run IDs.
 3. Stage balanced opening journals from verified exports; never manufacture balances to make a report appear correct.
 4. Import open AR items with customer source identities and remaining balances; import open AP items with vendor/evidence identities and remaining balances. Avoid double counting control-account opening balances.
@@ -14,3 +14,5 @@ No import or authority cutover has occurred. QuickBooks remains the current acco
 10. Maintain rollback: keep original exports and legacy access, record migrated batches, suspend new intake during rollback, reconcile post-cutoff changes and use approved reversing batches rather than deleting posted history.
 
 FinancialAgent must not become authoritative until the books and control totals are reconciled and signed off.
+
+The required Pioneer reconciliation inventory and development-only acceptance procedure are documented in [Pioneer 2027 accounting setup](../PIONEER_2027_ACCOUNTING_SETUP.md). It includes the 12/31/2026 Trial Balance, bank, AR/open invoices, inventory, fixed assets/accumulated depreciation, AP/open bills, cards, loans, payroll/tax liabilities, equity and retained earnings. Opening AR/AP items must not recreate 2026 revenue/expense or duplicate control balances. No migration is implemented or authorized by period creation.

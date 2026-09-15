@@ -33,6 +33,7 @@ const account = new Schema(
     subtype: String,
     parentId: String,
     active: Boolean,
+    postingAccount: { type: Boolean, default: true },
     controlAccount: { type: Boolean, default: false },
     allowManualPosting: { type: Boolean, default: true },
     revision: { type: Number, default: 0 },

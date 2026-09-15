@@ -18,6 +18,117 @@ let humanToken: string;
 let readerToken: string;
 let expiredToken: string;
 const company = "pioneer-industries";
+test("headers organize posting children and 2027 setup is explicit and repeatable", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([
+    {
+      name: "__Host-finance-session",
+      value: humanToken,
+      domain: "localhost",
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "Strict",
+    },
+  ]);
+  await page.goto(`/accounts?company=${company}`);
+  const create = page
+    .locator("form")
+    .filter({
+      has: page.getByRole("button", { name: "Create account", exact: true }),
+    });
+  await create.getByLabel("Code", { exact: true }).fill("1800");
+  await create.getByLabel("Name", { exact: true }).fill("Header fixture");
+  await create.getByLabel("Posting account", { exact: true }).uncheck();
+  await expect(
+    create.getByLabel("Allow manual posting", { exact: true }),
+  ).toBeDisabled();
+  await create
+    .getByRole("button", { name: "Create account", exact: true })
+    .click();
+  await expect(page.getByRole("row").filter({ hasText: "1800" })).toContainText(
+    "Header / Non-Posting",
+  );
+  await create.getByLabel("Code", { exact: true }).fill("1810");
+  await create
+    .getByLabel("Name", { exact: true })
+    .fill("Posting child fixture");
+  await expect(
+    create.getByLabel("Posting account", { exact: true }),
+  ).toBeChecked();
+  await create
+    .getByLabel("Parent account", { exact: true })
+    .selectOption({ label: "1800 · Header fixture" });
+  await create
+    .getByRole("button", { name: "Create account", exact: true })
+    .click();
+  await expect(page.getByRole("row").filter({ hasText: "1810" })).toContainText(
+    "↳ Posting child fixture",
+  );
+  await page.goto(`/journal?company=${company}`);
+  const options = page
+    .getByRole("combobox", { name: "Account", exact: true })
+    .first()
+    .locator("option");
+  await expect(
+    options.filter({ hasText: "1810 · Posting child fixture" }),
+  ).toHaveCount(1);
+  await expect(
+    options.filter({ hasText: "1800 · Header fixture" }),
+  ).toHaveCount(0);
+  const before = await (
+    await context.request.get(`/api/finance?company=${company}`)
+  ).json();
+  expect(before.periods).toHaveLength(0);
+  await page.goto(`/periods?company=${company}`);
+  await expect(
+    page.getByText(/planned accounting start is 01-01-2027/),
+  ).toBeVisible();
+  await page
+    .getByText("Review the 12 monthly periods", { exact: true })
+    .click();
+  await expect(
+    page.getByRole("cell", { name: "02-28-2027", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Setup reason")
+    .fill("Explicit disposable browser fixture setup");
+  page.on("dialog", (dialog) => dialog.accept());
+  await page
+    .getByRole("button", { name: "Create missing 2027 periods" })
+    .click();
+  await expect(page.getByRole("status")).toContainText(
+    "2027 monthly setup complete",
+  );
+  const first = await (
+    await context.request.get(`/api/finance?company=${company}`)
+  ).json();
+  expect(first.periods).toHaveLength(12);
+  expect(
+    first.periods.every(
+      (p: { startDate: string; status: string }) =>
+        p.startDate.startsWith("2027-") && p.status === "open",
+    ),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: "Create missing 2027 periods" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Create missing 2027 periods" }),
+  ).toBeEnabled();
+  const repeated = await (
+    await context.request.get(`/api/finance?company=${company}`)
+  ).json();
+  expect(repeated.periods).toEqual(first.periods);
+  await page.goto("/periods?company=317-graphics");
+  await expect(
+    page.getByRole("heading", {
+      name: "Pioneer Industries · 2027 accounting setup",
+    }),
+  ).toHaveCount(0);
+});
 test("account governance editor and manual selection enforce visible policy", async ({
   page,
   context,

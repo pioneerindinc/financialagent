@@ -54,20 +54,27 @@ export const accountSchema = z
     subtype: z.string().max(100).default(""),
     parentId: id.optional(),
     active: z.boolean().default(true),
+    postingAccount: z.boolean().default(true),
     controlAccount: z.boolean().default(false),
     allowManualPosting: z.boolean().optional(),
   })
   .strict()
   .transform((data) => ({
     ...data,
-    allowManualPosting: data.allowManualPosting ?? !data.controlAccount,
-  }));
+    allowManualPosting:
+      data.allowManualPosting ?? (data.postingAccount && !data.controlAccount),
+  }))
+  .refine(
+    (data) => data.postingAccount || !data.allowManualPosting,
+    "Header / Non-Posting accounts cannot allow manual posting",
+  );
 export const accountEditSchema = z
   .object({
     name: text.optional(),
     subtype: z.string().max(100).optional(),
     parentId: id.nullable().optional(),
     active: z.boolean().optional(),
+    postingAccount: z.boolean().optional(),
     controlAccount: z.boolean().optional(),
     allowManualPosting: z.boolean().optional(),
   })

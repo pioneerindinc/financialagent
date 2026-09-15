@@ -11,6 +11,7 @@ import {
   editAccount,
   createDraft,
   createPeriod,
+  setupPioneer2027Periods,
   closePeriod,
   editDraft,
   postJournal,
@@ -97,6 +98,7 @@ const command = z
       "account.create",
       "account.edit",
       "period.create",
+      "period.setup2027",
       "period.close",
       "journal.create",
       "journal.edit",
@@ -139,6 +141,13 @@ export async function POST(req: NextRequest) {
         break;
       case "period.create":
         result = await createPeriod(user, c.companyId, c.data);
+        break;
+      case "period.setup2027":
+        result = await setupPioneer2027Periods(
+          user,
+          c.companyId,
+          text.parse(c.reason),
+        );
         break;
       case "period.close":
         result = await closePeriod(

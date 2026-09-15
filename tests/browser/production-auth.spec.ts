@@ -137,7 +137,7 @@ test("production HTTPS human login, secret boundaries and revocable logout", asy
   await expect(
     page.getByRole("heading", { name: "Sign-in required" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Sign in →", exact: true }).click();
+  await page.getByRole("link", { name: "Sign in", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Pioneer sign-in" }),
   ).toBeVisible();

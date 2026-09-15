@@ -30,12 +30,12 @@ export async function FinancePage({
         <p className="eyebrow">PRIVATE FINANCE WORKSPACE</p>
         <h1>Sign-in required</h1>
         <p>
-          Access requires a verified Pioneer identity and an explicit company
+          Access requires authorization and an explicit company
           assignment.
         </p>
         {authMode() === "internal" ? (
           <p>
-            <Link href="/sign-in">Sign in →</Link>
+            <a className="button" href="/sign-in">Sign in</a>
           </p>
         ) : (
           <p>

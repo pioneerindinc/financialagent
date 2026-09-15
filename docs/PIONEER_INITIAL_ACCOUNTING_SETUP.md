@@ -1,5 +1,7 @@
 # Pioneer Industries initial accounting setup — audit and proposal
 
+> Current decision: the user has configured/reviewed the COA. QuickBooks remains official through **12-31-2026**, with FinancialAgent planned to begin **01-01-2027** after reconciliation/sign-off. The October 2026 proposal and earlier next-step/period recommendations below are historical and superseded by [Pioneer 2027 accounting setup](PIONEER_2027_ACCOUNTING_SETUP.md), including explicit OPEN monthly setup and posting/header governance. This document is not an instruction to re-create the proposed COA.
+
 Audit date: September 14, 2026. Local source baseline: `12e9fb9`, branch `main`. This is a design document, not an executable setup manifest or authorization to change books.
 
 The operator reports working production authentication, a transaction-ready dedicated replica set, an admin assigned to four companies, and completed company bootstrap. **Production was not queried. Actual account/period counts, existing balances, fiscal settings, indexes and prior entries are therefore unverified.** Company bootstrap alone creates no accounts, periods or journals; it does not establish that nobody has subsequently created them. No production URL, ERP or QuickBooks connection was used. The original audit changed documentation only; the subsequent governance implementation is recorded below. The pre-existing `src/app/globals.css` and `src/components/finance-page.tsx` edits are unrelated and preserved.
@@ -165,7 +167,7 @@ Direct labor in 5100 is useful for repair margin reporting. It does not by itsel
 
 Reference context: the IRS describes accounting periods/method choices and inventory considerations in [Publication 538](https://www.irs.gov/publications/p538), and discusses inventory/material/labor cost distinctions in [Publication 334](https://www.irs.gov/publications/p334). These tax references do not prescribe this proposed COA or establish Pioneer's entity-specific treatment. The codes/control flags above are application design recommendations, not imported accounting rules.
 
-## 3. Proposed accounting periods and migration boundary
+## 3. Historical period proposal — superseded
 
 Use calendar FY **2026, January 1–December 31**, consistent with the source default, pending confirmation of the actual company record and accounting policy. Plan twelve calendar months, not one full-year period: an annual period would overlap and prevent subsequently creating monthly periods.
 

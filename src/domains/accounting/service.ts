@@ -6,6 +6,10 @@ import { assert } from "../../lib/errors";
 import { authorize, type Actor } from "../../lib/auth/policy";
 import { Account, Audit, Company, Journal, Period } from "../../models";
 import {
+  PIONEER_COMPANY,
+  PIONEER_2027_PERIODS,
+} from "../../lib/accounting-cutover";
+import {
   accountSchema,
   accountEditSchema,
   date,
@@ -87,6 +91,14 @@ async function accountsValid(
     count === ids.length,
     "Every account must be active and belong to this company",
   );
+  assert(
+    !(await Account.exists({
+      companyId,
+      _id: { $in: ids },
+      postingAccount: false,
+    }).session(session)),
+    "Header / Non-Posting accounts cannot be used in journal lines",
+  );
   if (manual)
     assert(
       !(await Account.exists({
@@ -127,6 +139,23 @@ export async function editAccount(
       409,
     );
     const before = record.toObject();
+    const posting = data.postingAccount ?? record.postingAccount ?? true;
+    const manual = data.allowManualPosting ?? record.allowManualPosting ?? true;
+    assert(
+      posting || !manual,
+      "Header / Non-Posting accounts cannot allow manual posting",
+    );
+    if (!posting && record.postingAccount !== false) {
+      assert(
+        !(await Journal.exists({
+          companyId,
+          status: "draft",
+          "lines.accountId": accountId,
+        }).session(session)),
+        "Pending drafts reference this account; resolve them before changing it to Header / Non-Posting",
+        409,
+      );
+    }
     const parent =
       data.parentId === undefined ? record.parentId : data.parentId;
     const seen = new Set<string>([accountId]);
@@ -228,38 +257,107 @@ export async function createPeriod(
   input: unknown,
 ) {
   const data = periodSchema.parse(input);
-  return write(actor, companyId, "finance:write", async (session) => {
-    assert(
-      !(await Period.exists({
-        companyId,
-        startDate: { $lte: data.endDate },
-        endDate: { $gte: data.startDate },
-      }).session(session)),
-      "Accounting periods cannot overlap",
-    );
-    const [record] = await Period.create(
-      [
-        {
-          _id: randomUUID(),
-          companyId,
-          ...data,
-          createdBy: actorId(actor),
-          updatedBy: actorId(actor),
-        },
-      ],
-      { session },
-    );
-    await audit(
-      session,
-      actor,
+  return write(actor, companyId, "finance:write", (session) =>
+    createPeriodInSession(actor, companyId, data, session),
+  );
+}
+async function createPeriodInSession(
+  actor: Actor,
+  companyId: string,
+  input: unknown,
+  session: ClientSession,
+  reason = "Create accounting period",
+) {
+  const data = periodSchema.parse(input);
+  assert(
+    !(await Period.exists({
       companyId,
-      "period.create",
-      record.id,
-      "Create accounting period",
-      undefined,
-      record.toObject(),
+      startDate: { $lte: data.endDate },
+      endDate: { $gte: data.startDate },
+    }).session(session)),
+    "Accounting periods cannot overlap",
+  );
+  const [record] = await Period.create(
+    [
+      {
+        _id: randomUUID(),
+        companyId,
+        ...data,
+        createdBy: actorId(actor),
+        updatedBy: actorId(actor),
+      },
+    ],
+    { session },
+  );
+  await audit(
+    session,
+    actor,
+    companyId,
+    "period.create",
+    record.id,
+    reason,
+    undefined,
+    record.toObject(),
+  );
+  return record;
+}
+
+export async function setupPioneer2027Periods(
+  actor: Actor,
+  companyId: string,
+  reason: string,
+) {
+  const explanation = text.parse(reason);
+  authorize(actor, companyId, "finance:write");
+  assert(
+    companyId === PIONEER_COMPANY,
+    "2027 setup is available only for Pioneer Industries",
+    403,
+  );
+  return write(actor, companyId, "finance:write", async (session) => {
+    const company = await Company.findById(companyId).session(session);
+    assert(
+      company?.fiscalYearStart === "01-01",
+      "2027 monthly setup requires a calendar fiscal year",
+      409,
     );
-    return record;
+    const existing = await Period.find({
+      companyId,
+      startDate: { $lte: "2027-12-31" },
+      endDate: { $gte: "2027-01-01" },
+    }).session(session);
+    // Preflight the entire year; never partially create months around a conflict.
+    for (const period of existing) {
+      assert(
+        PIONEER_2027_PERIODS.some(
+          (month) =>
+            month.startDate === period.startDate &&
+            month.endDate === period.endDate,
+        ),
+        "Existing periods conflict with the 2027 monthly calendar; no periods were changed",
+        409,
+      );
+    }
+    let created = 0;
+    for (const month of PIONEER_2027_PERIODS) {
+      if (
+        existing.some(
+          (period) =>
+            period.startDate === month.startDate &&
+            period.endDate === month.endDate,
+        )
+      )
+        continue;
+      await createPeriodInSession(
+        actor,
+        companyId,
+        month,
+        session,
+        explanation,
+      );
+      created++;
+    }
+    return { created, existing: existing.length, year: 2027 };
   });
 }
 export async function closePeriod(
@@ -472,6 +570,8 @@ export async function reverseJournal(
       409,
     );
     await openPeriod(companyId, transactionDate, session);
+    // Narrow historical exception: exact original lines only, including accounts
+    // subsequently made inactive/nonmanual/nonposting. No arbitrary system payload.
     const lines = original.lines.map(
       (l: {
         accountId: string;

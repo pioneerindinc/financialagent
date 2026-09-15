@@ -4,14 +4,29 @@ import { useState } from "react";
 export function AccountGovernance({
   control = false,
   manual = true,
+  posting = true,
 }: {
   control?: boolean;
   manual?: boolean;
+  posting?: boolean;
 }) {
   const [controlAccount, setControl] = useState(control);
+  const [postingAccount, setPosting] = useState(posting);
   const [allowManualPosting, setManual] = useState(manual);
   return (
     <>
+      <label>
+        <input
+          name="postingAccount"
+          type="checkbox"
+          checked={postingAccount}
+          onChange={(event) => {
+            setPosting(event.target.checked);
+            if (!event.target.checked) setManual(false);
+          }}
+        />{" "}
+        Posting account
+      </label>
       <label>
         <input
           name="controlAccount"
@@ -29,10 +44,16 @@ export function AccountGovernance({
           name="allowManualPosting"
           type="checkbox"
           checked={allowManualPosting}
+          disabled={!postingAccount}
           onChange={(e) => setManual(e.target.checked)}
         />{" "}
         Allow manual posting
       </label>
+      <small>
+        {postingAccount
+          ? "Posting accounts can receive journal entries. Control accounts have balances explained by a source or subsystem."
+          : "Header / Non-Posting: organizes child accounts; no new journal lines are allowed."}
+      </small>
     </>
   );
 }
@@ -44,6 +65,7 @@ type EditableAccount = {
   type: string;
   subtype: string;
   active: boolean;
+  postingAccount?: boolean;
   parentId?: string;
   controlAccount?: boolean;
   allowManualPosting?: boolean;
@@ -79,6 +101,7 @@ export function AccountEditor({
               subtype: f.get("subtype"),
               parentId: f.get("parentId") || null,
               active: f.has("active"),
+              postingAccount: f.has("postingAccount"),
               controlAccount: f.has("controlAccount"),
               allowManualPosting: f.has("allowManualPosting"),
             },
@@ -116,6 +139,7 @@ export function AccountEditor({
           Active account
         </label>
         <AccountGovernance
+          posting={account.postingAccount !== false}
           control={account.controlAccount === true}
           manual={account.allowManualPosting !== false}
         />
