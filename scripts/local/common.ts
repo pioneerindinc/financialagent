@@ -39,6 +39,10 @@ export async function control(action: "status" | "stop") {
     method: action === "stop" ? "POST" : "GET",
     headers: { Authorization: `Bearer ${state.token}` },
     signal: AbortSignal.timeout(5000),
+  }).catch(() => {
+    throw new Error(
+      "Local development database controller is unavailable. Run npm run dev:db:start in a separate terminal, wait for Primary ready, then retry this command. Keep the database terminal open.",
+    );
   });
   if (!response.ok)
     throw new Error(

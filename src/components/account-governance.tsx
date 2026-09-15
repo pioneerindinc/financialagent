@@ -33,10 +33,6 @@ export function AccountGovernance({
         />{" "}
         Allow manual posting
       </label>
-      <small>
-        Control accounts normally receive source entries only. You may
-        explicitly allow manual posting; all changes are audited.
-      </small>
     </>
   );
 }
@@ -73,11 +69,6 @@ export function AccountEditor({
       <h2>
         Edit account {account.code} · {companyName}
       </h2>
-      <p>
-        Code {account.code} and type {account.type} are permanent. Deactivation
-        preserves history and blocks new manual and source postings. Exact
-        reversals remain available.
-      </p>
       <form
         onSubmit={async (e) => {
           e.preventDefault();

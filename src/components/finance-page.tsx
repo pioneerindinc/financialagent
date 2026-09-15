@@ -67,16 +67,14 @@ export async function FinancePage({
         </div>
       )}
 
-            {actor.session !== "development" && authMode() === "internal" && (
-        <form action="/auth/sign-out" method="post">
-          <button>Sign out</button>
-        </form>
-      )}
       <FinanceConsole
         view={view}
         journalId={journalId}
         companyIds={actor.companies}
         canWrite={actor.scopes.includes("finance:write")}
+        showSignOut={
+          actor.session !== "development" && authMode() === "internal"
+        }
       />
     </>
   );

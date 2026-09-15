@@ -293,12 +293,18 @@ test("authenticated accountant completes draft, post, reports and reversal", asy
     ).toBeVisible();
   }
   await page.goto(`/periods?company=${company}`);
-  await page.getByLabel("Start", { exact: true }).fill("2026-01-01");
-  await page.getByLabel("End", { exact: true }).fill("2026-12-31");
+  await page.getByLabel("Start", { exact: true }).fill("02-30-2026");
+  expect(
+    await page
+      .getByLabel("Start", { exact: true })
+      .evaluate((element: HTMLInputElement) => element.validity.valid),
+  ).toBe(false);
+  await page.getByLabel("Start", { exact: true }).fill("01-01-2026");
+  await page.getByLabel("End", { exact: true }).fill("12-31-2026");
   await page.getByRole("button", { name: "Create period" }).click();
-  await expect(page.getByText("2026-01-01 — 2026-12-31 · open")).toBeVisible();
+  await expect(page.getByText("01-01-2026 — 12-31-2026 · open")).toBeVisible();
   await page.goto(`/journal?company=${company}`);
-  await page.getByLabel("Transaction date").fill("2026-01-15");
+  await page.getByLabel("Transaction date").fill("01-15-2026");
   await page.getByLabel("Description", { exact: true }).fill("Browser journal");
   await page
     .getByLabel("Account", { exact: true })
@@ -318,6 +324,7 @@ test("authenticated accountant completes draft, post, reports and reversal", asy
   await page.getByRole("button", { name: "Save balanced draft" }).click();
   await expect(page.getByText("Draft saved.", { exact: false })).toBeVisible();
   await page.getByRole("link", { name: "Review entry →" }).first().click();
+  await expect(page.getByLabel("Transaction date")).toHaveValue("01-15-2026");
   await expect(
     page.getByLabel("Debit ($)", { exact: true }).nth(0),
   ).toHaveValue("123.45");
@@ -335,12 +342,28 @@ test("authenticated accountant completes draft, post, reports and reversal", asy
     page.getByRole("heading", { name: "Trial Balance", exact: true }),
   ).toBeVisible();
   await expect(page.locator("tfoot")).toContainText("$123.45");
+  await page.getByLabel("As of", { exact: true }).fill("01-14-2026");
+  await expect(page.locator("tfoot")).toContainText("$0.00");
+  await page.getByLabel("As of", { exact: true }).fill("01-31-2026");
+  await expect(page.locator("tfoot")).toContainText("$123.45");
   await page.goto(`/reports/general-ledger?company=${company}`);
   await expect(
     page.getByRole("cell", { name: /Browser journal/ }).first(),
   ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: /01-15-2026/ }).first(),
+  ).toBeVisible();
+  await page.getByLabel("From", { exact: true }).fill("01-16-2026");
+  await expect(page.getByRole("cell", { name: /Browser journal/ })).toHaveCount(
+    0,
+  );
+  await page.getByLabel("From", { exact: true }).fill("01-01-2026");
+  await page.getByLabel("Through", { exact: true }).fill("01-31-2026");
+  await expect(
+    page.getByRole("cell", { name: /Browser journal/ }).first(),
+  ).toBeVisible();
   await page.goto(originalUrl);
-  await page.getByLabel("Reversal date").fill("2026-01-20");
+  await page.getByLabel("Reversal date").fill("01-20-2026");
   await page.getByLabel("Reason", { exact: true }).fill("Browser correction");
   await page
     .getByRole("button", { name: "Reverse journal", exact: true })

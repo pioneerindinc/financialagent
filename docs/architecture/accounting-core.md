@@ -50,6 +50,8 @@ The reserved `financialagent-reversal` source namespace is available only to the
 
 ## Exact money and reports
 
+All accounting UI date displays and inputs use `MM-DD-YYYY` (periods, journal creation/editing, reversal and report filters). Text date controls enforce the format and real calendar dates consistently across browser locales. Date-only components convert to/from ISO without local-timezone shifts. API/storage date strings remain `YYYY-MM-DD`; timestamps and accounting date comparisons are unchanged. Incomplete/invalid report dates clear the report and do not issue a date query.
+
 Journal entry/edit fields accept dollar amounts such as `123.45`, labelled Debit ($) and Credit ($). Blank unused sides mean zero. Conversion uses decimal-string parsing and BigInt, never floating-point multiplication/rounding; more than two decimal places, negative values, exponent notation, currency symbols/group separators and unsafe totals are rejected. Existing draft cents format back into exact dollar strings. API payloads and persisted ledger amounts remain integer `debitCents`/`creditCents`; integrations do not change units.
 
 USD cents are safe JavaScript integers, persisted as BSON numbers. Although BSON uses numeric representation, every monetary value is an exact integer within ±9,007,199,254,740,991 cents; fractional and unsafe values are rejected. Addition and subtraction guard overflow. Formatting uses BigInt division/remainder to avoid decimal rounding. Individual journal sides are nonnegative; report net balances can be negative. There is no floating-point decimal-dollar arithmetic and no FX conversion.

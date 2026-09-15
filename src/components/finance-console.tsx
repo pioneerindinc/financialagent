@@ -4,6 +4,10 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { formatMoney, dollarsToCents, centsToDollarInput } from "../lib/money";
 import { AccountEditor, AccountGovernance } from "./account-governance";
+import { DateInput } from "./date-input";
+import { formatDate } from "../lib/dates";
+import { AccountCreateHeading } from "./account-number-guide";
+import accountGuideStyles from "./account-number-guide.module.css";
 type Account = {
   _id: string;
   code: string;
@@ -83,11 +87,13 @@ export function FinanceConsole({
   journalId,
   companyIds,
   canWrite,
+  showSignOut = false,
 }: {
   view: string;
   journalId?: string;
   companyIds: string[];
   canWrite: boolean;
+  showSignOut?: boolean;
 }) {
   const search = useSearchParams();
   const requestedCompany = search.get("company") || "";
@@ -108,6 +114,8 @@ export function FinanceConsole({
   const [filter, setFilter] = useState("");
   useEffect(() => {
     if (!company) return;
+    if (["trial-balance", "general-ledger"].includes(view) && (!from || !to))
+      return;
     const controller = new AbortController();
     async function get(query: string) {
       const response = await fetch(
@@ -205,7 +213,7 @@ export function FinanceConsole({
         <tbody>
           {data?.journals.map((j) => (
             <tr key={j._id}>
-              <td>{j.transactionDate}</td>
+              <td>{formatDate(j.transactionDate)}</td>
               <td>{j.description}</td>
               <td>
                 <span className="badge">{j.status}</span>
@@ -236,6 +244,15 @@ export function FinanceConsole({
           ))}
         </nav>
         <small>USD · Company books kept separate</small>
+        {showSignOut && (
+          <form
+            action="/auth/sign-out"
+            method="post"
+            className="sidebar-sign-out"
+          >
+            <button type="submit">Sign out</button>
+          </form>
+        )}
       </aside>
       <main>
         <header>
@@ -306,7 +323,7 @@ export function FinanceConsole({
                     .filter((p) => p.status === "open")
                     .map((p) => (
                       <p key={p._id}>
-                        {p.startDate} — {p.endDate}
+                        {formatDate(p.startDate)} — {formatDate(p.endDate)}
                       </p>
                     ))}
                   {!data.periods.some((p) => p.status === "open") && (
@@ -364,8 +381,8 @@ export function FinanceConsole({
                   </table>
                 </section>
                 {canWrite && (
-                  <section>
-                    <h2>Create account · {data.company.name}</h2>
+                  <section className={accountGuideStyles.container}>
+                    <AccountCreateHeading companyName={data.company.name} />
                     <form
                       onSubmit={async (e) => {
                         e.preventDefault();
@@ -450,7 +467,8 @@ export function FinanceConsole({
                   {data.periods.map((p) => (
                     <div className="period" key={p._id}>
                       <span>
-                        {p.startDate} — {p.endDate} · {p.status}
+                        {formatDate(p.startDate)} — {formatDate(p.endDate)} ·{" "}
+                        {p.status}
                       </span>
                       {canWrite && p.status === "open" && (
                         <form
@@ -497,11 +515,11 @@ export function FinanceConsole({
                     >
                       <label>
                         Start
-                        <input name="start" type="date" required />
+                        <DateInput name="start" required />
                       </label>
                       <label>
                         End
-                        <input name="end" type="date" required />
+                        <DateInput name="end" required />
                       </label>
                       <button disabled={busy}>Create period</button>
                     </form>
@@ -535,7 +553,8 @@ export function FinanceConsole({
                 <section>
                   <h2>{entry.description}</h2>
                   <p>
-                    {entry._id} · {entry.status} · {entry.transactionDate}
+                    {entry._id} · {entry.status} ·{" "}
+                    {formatDate(entry.transactionDate)}
                   </p>
                   <p>
                     Source: {entry.sourceSystem} / {entry.sourceType} /{" "}
@@ -628,8 +647,7 @@ export function FinanceConsole({
                       >
                         <label>
                           Reversal date
-                          <input
-                            type="date"
+                          <DateInput
                             name="date"
                             required
                             defaultValue={today()}
@@ -675,12 +693,12 @@ export function FinanceConsole({
                     <>
                       <label>
                         From
-                        <input
-                          type="date"
-                          value={from}
-                          onChange={(e) => {
+                        <DateInput
+                          defaultValue={from}
+                          required
+                          onDateChange={(iso) => {
                             setReport(undefined);
-                            setFrom(e.target.value);
+                            setFrom(iso);
                           }}
                         />
                       </label>
@@ -706,12 +724,12 @@ export function FinanceConsole({
                   )}
                   <label>
                     {view === "trial-balance" ? "As of" : "Through"}
-                    <input
-                      type="date"
-                      value={to}
-                      onChange={(e) => {
+                    <DateInput
+                      defaultValue={to}
+                      required
+                      onDateChange={(iso) => {
                         setReport(undefined);
-                        setTo(e.target.value);
+                        setTo(iso);
                       }}
                     />
                   </label>
@@ -741,7 +759,7 @@ export function FinanceConsole({
                           {view === "general-ledger" && (
                             <>
                               <td>
-                                {r.transactionDate}
+                                {formatDate(r.transactionDate || "")}
                                 <br />
                                 <Link
                                   href={`/journal/${r.journalId}${companyQuery}`}
@@ -866,17 +884,13 @@ function JournalForm({
       <h2>
         {entry ? "Edit draft" : "New draft"} · {companyName}
       </h2>
-      <p>
-        Enter dollars and cents (for example, 125.50). Leave the unused side
-        blank or zero. Debits and credits must balance.
-      </p>
+      <p>Debits and credits must balance.</p>
       {amountError && <p role="alert">{amountError}</p>}
       <form onSubmit={save}>
         <label>
           Transaction date
-          <input
+          <DateInput
             name="date"
-            type="date"
             required
             defaultValue={entry?.transactionDate || today()}
           />

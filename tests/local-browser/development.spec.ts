@@ -52,11 +52,11 @@ test("local sign-in and a fully attributed accounting cycle through the UI", asy
     )
   ) {
     await page.goto(`/periods?company=${company}`);
-    await page.getByLabel("Start", { exact: true }).fill(`${year}-01-01`);
-    await page.getByLabel("End", { exact: true }).fill(`${year}-12-31`);
+    await page.getByLabel("Start", { exact: true }).fill(`01-01-${year}`);
+    await page.getByLabel("End", { exact: true }).fill(`12-31-${year}`);
     await page.getByRole("button", { name: "Create period" }).click();
     await expect(
-      page.getByText(`${year}-01-01 — ${year}-12-31 · open`),
+      page.getByText(`01-01-${year} — 12-31-${year} · open`),
     ).toBeVisible();
   }
   await page.goto(`/journal?company=${company}`);

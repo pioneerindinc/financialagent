@@ -1,0 +1,68 @@
+.container {
+  overflow: visible;
+}
+.heading {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.info {
+  border-radius: 50%;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  flex: 0 0 auto;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: help;
+}
+.info:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+.panel {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  width: min(700px, 100%);
+  box-sizing: border-box;
+  max-height: min(70vh, 600px);
+  overflow: auto;
+  background: #fff;
+  color: #17202a;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 8px 28px #0002;
+  padding: 1rem;
+  font-size: 0.85rem;
+}
+.title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.title button {
+  padding: 0.15rem 0.5rem;
+}
+.panel table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+.panel th,
+.panel td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 0.6rem 0.35rem;
+  text-align: left;
+}
+.panel th:first-child {
+  width: 24%;
+}
+.panel p {
+  margin-bottom: 0;
+  line-height: 1.5;
+}

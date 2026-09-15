@@ -54,6 +54,12 @@ aside small {
   margin-top: auto;
   color: #ffffff;
 }
+.sidebar-sign-out {
+  margin: 0;
+}
+.sidebar-sign-out button {
+  width: 100%;
+}
 .brand {
   font-size: 24px;
   font-weight: 700;
