@@ -55,7 +55,7 @@ const period = new Schema(
 period.index({ companyId: 1, startDate: 1, endDate: 1 }, { unique: true });
 const line = new Schema(
   { accountId: String, debitCents: Number, creditCents: Number, memo: String },
-  { _id: false, strict: "throw" },
+  { _id: false, strict: "throw", versionKey: false },
 );
 const journal = new Schema(
   {
@@ -69,7 +69,12 @@ const journal = new Schema(
     sourceRevision: String,
     sourceHash: String,
     postingOrigin: { type: String, enum: ["manual", "source", "system"] },
-    status: { type: String, enum: ["draft", "posted"], default: "draft" },
+    status: {
+      type: String,
+      enum: ["draft", "posted", "superseded"],
+      default: "draft",
+    },
+    arVersionId: String,
     lines: [line],
     revision: { type: Number, default: 0 },
     postedAt: Date,
@@ -116,7 +121,82 @@ export const Period =
 export const Journal =
   mongoose.models.Journal || mongoose.model("Journal", journal);
 export const Audit = mongoose.models.Audit || mongoose.model("Audit", audit);
+const arInvoice = new Schema(
+  {
+    ...base,
+    sourceSystem: String,
+    sourceType: String,
+    sourceId: String,
+    currentVersionId: String,
+  },
+  options,
+);
+arInvoice.index(
+  { companyId: 1, sourceSystem: 1, sourceType: 1, sourceId: 1 },
+  { unique: true },
+);
+const arVersion = new Schema(
+  {
+    ...base,
+    invoiceId: String,
+    sourceRevision: String,
+    fingerprint: String,
+    payload: Schema.Types.Mixed,
+    capturedAt: String,
+    importedAt: Date,
+    originalAmountCents: Number,
+    mode: { type: String, enum: ["parallel", "authoritative"] },
+    status: {
+      type: String,
+      enum: [
+        "imported",
+        "needs-review",
+        "ready-for-draft",
+        "drafted",
+        "posted",
+        "superseded",
+        "canceled",
+        "correction-required",
+      ],
+    },
+    issues: [String],
+    journalId: String,
+    mappingVersion: Number,
+    arAccountId: String,
+  },
+  options,
+);
+arVersion.index(
+  { companyId: 1, invoiceId: 1, sourceRevision: 1 },
+  { unique: true },
+);
+const arMapping = new Schema(
+  {
+    ...base,
+    version: Number,
+    arAccountId: String,
+    rules: Schema.Types.Mixed,
+    reason: String,
+  },
+  options,
+);
+arMapping.index({ companyId: 1, version: 1 }, { unique: true });
+export const ArInvoice =
+  mongoose.models.ArInvoice || mongoose.model("ArInvoice", arInvoice);
+export const ArVersion =
+  mongoose.models.ArVersion || mongoose.model("ArVersion", arVersion);
+export const ArMapping =
+  mongoose.models.ArMapping || mongoose.model("ArMapping", arMapping);
 export async function ensureIndexes() {
-  for (const model of [Company, Account, Period, Journal, Audit])
+  for (const model of [
+    Company,
+    Account,
+    Period,
+    Journal,
+    Audit,
+    ArInvoice,
+    ArVersion,
+    ArMapping,
+  ])
     await model.createIndexes();
 }

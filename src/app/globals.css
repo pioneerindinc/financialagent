@@ -1,7 +1,7 @@
 @import "tailwindcss";
 .development-banner {
   background: #ff0000;
-  border-bottom: 2px solid #ad7414;
+  border-bottom: 2px solid #111111;
   color: #ffffff;
   padding: 12px 24px;
   display: flex;
@@ -101,7 +101,7 @@ h2 {
   margin: 0 0 18px;
 }
 .subtitle {
-  color: #6b7e72;
+  color: #111111;
   margin-bottom: 28px;
 }
 section {
@@ -137,7 +137,7 @@ th {
   vertical-align: top;
 }
 th {
-  color: #61776b;
+  color: #111111;
   font-weight: 600;
 }
 tfoot th {
@@ -156,7 +156,7 @@ select {
   border: 1px solid #c6d4ca;
   border-radius: 5px;
   padding: 10px;
-  color: #18332f;
+  color: #111111;
   font: inherit;
   max-width: 100%;
 }
@@ -182,14 +182,20 @@ button:disabled {
   cursor: wait;
 }
 .badge {
-  background: #eef3e7;
-  color: #496333;
+  background: #999999;
+  color: #ffffff;
+  padding: 5px 9px;
+  border-radius: 4px;
+}
+.badgeButton {
+  background: #111111;
+  color: #ffffff;
   padding: 5px 9px;
   border-radius: 4px;
 }
 .error {
-  color: #8b2626;
-  background: #fff0ed;
+  color: #ff0000;
+  background: #ffffff;
   padding: 16px;
   border-radius: 5px;
 }

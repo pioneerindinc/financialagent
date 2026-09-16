@@ -11,6 +11,7 @@ import accountGuideStyles from "./account-number-guide.module.css";
 import { accountHierarchy } from "../lib/account-hierarchy";
 import { PioneerPeriodSetup } from "./period-setup";
 import { PIONEER_COMPANY } from "../lib/accounting-cutover";
+import { ArConsole } from "./ar-console";
 type Account = {
   _id: string;
   code: string;
@@ -83,6 +84,7 @@ const links = [
   ["/accounts", "Chart of Accounts"],
   ["/periods", "Accounting periods"],
   ["/journal", "Journal entries"],
+  ["/ar", "Accounts receivable"],
   ["/reports/trial-balance", "Trial Balance"],
   ["/reports/general-ledger", "General Ledger"],
 ];
@@ -224,9 +226,9 @@ export function FinanceConsole({
                 <span className="badge">{j.status}</span>
               </td>
               <td>
-                <Link href={`/journal/${j._id}${companyQuery}`}>
-                  Review entry →
-                </Link>
+                <a className="badgeButton" href={`/journal/${j._id}${companyQuery}`}>
+                  Review entry
+                </a>
               </td>
             </tr>
           ))}
@@ -296,6 +298,14 @@ export function FinanceConsole({
         {company && !data && !error && <p>Loading company records…</p>}
         {data && (
           <>
+            {view === "ar" && (
+              <ArConsole
+                key={company}
+                company={company}
+                canWrite={canWrite}
+                accounts={data.accounts}
+              />
+            )}
             {view === "companies" && (
               <section>
                 <h2>{data.company.name}</h2>
@@ -387,7 +397,7 @@ export function FinanceConsole({
                                   disabled={busy}
                                   onClick={() => setEditingAccount(a)}
                                 >
-                                  Edit {a.code}
+                                  Edit
                                 </button>
                               </td>
                             )}
@@ -609,12 +619,12 @@ export function FinanceConsole({
                 <section>
                   <h2>{entry.description}</h2>
                   <p>
-                    {entry._id} · {entry.status} ·{" "}
+                    {entry.status} ·{" "}
                     {formatDate(entry.transactionDate)}
                   </p>
                   <p>
                     Source: {entry.sourceSystem} / {entry.sourceType} /{" "}
-                    {entry.sourceId} / {entry.sourceRevision}
+                    Revision {entry.sourceRevision}
                   </p>
                   <p>
                     Created by {entry.createdBy}
@@ -650,17 +660,23 @@ export function FinanceConsole({
                       </tr>
                     </thead>
                     <tbody>
-                      {entry.lines.map((l, i) => (
-                        <tr key={i}>
-                          <td>
-                            {data.accounts.find((a) => a._id === l.accountId)
-                              ?.name || l.accountId}
-                          </td>
-                          <td>{formatMoney(l.debitCents)}</td>
-                          <td>{formatMoney(l.creditCents)}</td>
-                          <td>{l.memo}</td>
-                        </tr>
-                      ))}
+                      {entry.lines.map((l, i) => {
+                        const account = data.accounts.find(
+                          (a) => a._id === l.accountId,
+                        );
+                        return (
+                          <tr key={i}>
+                            <td>
+                              {account
+                                ? `${account.code} · ${account.name}`
+                                : "Account no longer available"}
+                            </td>
+                            <td>{formatMoney(l.debitCents)}</td>
+                            <td>{formatMoney(l.creditCents)}</td>
+                            <td>{l.memo}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                   {canWrite && entry.status === "draft" && (
@@ -1009,8 +1025,7 @@ function JournalForm({
                   {side === "debit" ? "Debit ($)" : "Credit ($)"}
                   <input
                     type="text"
-                    inputMode="decimal"
-                    placeholder="0.00"
+                    inputMode="decimal"         
                     maxLength={32}
                     value={line[side]}
                     onChange={(e) =>

@@ -210,3 +210,7 @@ Keep prior release/env revision references and compatible artifacts. For a code 
 Internal sessions require an internal-auth-capable release. A pre-bridge rollback needs a functioning external issuer/configuration; never enable DEV_AUTH to regain access. Preserve auth collections and the current signing secret. Restoring an old compromised key can re-enable its unexpired stored sessions. See [PRODUCTION_AUTH.md](PRODUCTION_AUTH.md) for session/key rotation and operator recovery procedures. NSSM/build/start must never invoke `scripts/auth-user.ts` automatically.
 
 Never roll back MongoDB simply to match a code release. Posted journals are immutable history; deleting/replaying financial records is not an application rollback. Future schema changes require separately reviewed backward compatibility and financial reconciliation. Validate backups and restoration in isolation, and require explicit accounting-owner authorization for any data recovery. No data migration or schema mutation is included in this preparation beyond documenting the existing bootstrap process.
+
+## Pioneer AR bridge preparation
+
+See [Pioneer AR v1](PIONEER_AR.md) for the server-only ERP configuration, explicit AR index preparation, reviewed mapping workflow, parallel/authoritative guards and rollback restrictions. No sync or AR schema command runs at startup. Keep authoritative mode disabled until separately approved. Older writable releases do not enforce AR supersession/current-revision guards and are unsafe rollback targets after AR imports.

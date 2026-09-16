@@ -1,10 +1,18 @@
+import { assertArPosting, isArSource } from "../ar/posting";
 import { createHash, randomUUID } from "node:crypto";
 import type { ClientSession } from "mongoose";
 import { z } from "zod";
 import { connect } from "../../lib/db";
 import { assert } from "../../lib/errors";
 import { authorize, type Actor } from "../../lib/auth/policy";
-import { Account, Audit, Company, Journal, Period } from "../../models";
+import {
+  Account,
+  Audit,
+  Company,
+  Journal,
+  Period,
+  ArVersion,
+} from "../../models";
 import {
   PIONEER_COMPANY,
   PIONEER_2027_PERIODS,
@@ -21,7 +29,7 @@ import {
 const actorId = (actor: Actor) => `${actor.kind}:${actor.id}`;
 const hash = (data: unknown) =>
   createHash("sha256").update(JSON.stringify(data)).digest("hex");
-async function write<T>(
+export async function write<T>(
   actor: Actor,
   companyId: string,
   scope: string,
@@ -48,7 +56,7 @@ async function write<T>(
     },
   );
 }
-async function audit(
+export async function audit(
   session: ClientSession,
   actor: Actor,
   companyId: string,
@@ -392,62 +400,74 @@ export async function createDraft(
 ) {
   const data = validateJournal(input);
   assert(
-    data.sourceSystem !== "financialagent-reversal",
-    "Reserved source system",
+    !isArSource(data),
+    "Pioneer ERP invoices must use the governed AR bridge",
   );
   return write(
     actor,
     companyId,
     actor.kind === "service" ? "finance:source:write" : "finance:write",
-    async (session) => {
-      const existing = await Journal.findOne({
-        companyId,
-        sourceSystem: data.sourceSystem,
-        sourceType: data.sourceType,
-        sourceId: data.sourceId,
-        sourceRevision: data.sourceRevision,
-      }).session(session);
-      if (existing) {
-        assert(
-          existing.sourceHash === hash(data),
-          "Source identity already exists with different content",
-          409,
-        );
-        return existing;
-      }
-      await accountsValid(
-        companyId,
-        data.lines,
-        session,
-        actor.kind !== "service",
-      );
-      const [record] = await Journal.create(
-        [
-          {
-            _id: randomUUID(),
-            companyId,
-            ...data,
-            sourceHash: hash(data),
-            postingOrigin: actor.kind === "service" ? "source" : "manual",
-            createdBy: actorId(actor),
-            updatedBy: actorId(actor),
-          },
-        ],
-        { session },
-      );
-      await audit(
-        session,
-        actor,
-        companyId,
-        "journal.create",
-        record.id,
-        data.description,
-        undefined,
-        record.toObject(),
-      );
-      return record;
-    },
+    (session) => createDraftInSession(actor, companyId, data, session),
   );
+}
+/** Internal composition point: caller must hold the company write transaction. */
+export async function createDraftInSession(
+  actor: Actor,
+  companyId: string,
+  input: unknown,
+  session: ClientSession,
+) {
+  authorize(
+    actor,
+    companyId,
+    actor.kind === "service" ? "finance:source:write" : "finance:write",
+  );
+  const data = validateJournal(input);
+  assert(
+    data.sourceSystem !== "financialagent-reversal",
+    "Reserved source system",
+  );
+  const existing = await Journal.findOne({
+    companyId,
+    sourceSystem: data.sourceSystem,
+    sourceType: data.sourceType,
+    sourceId: data.sourceId,
+    sourceRevision: data.sourceRevision,
+  }).session(session);
+  if (existing) {
+    assert(
+      existing.sourceHash === hash(data),
+      "Source identity already exists with different content",
+      409,
+    );
+    return existing;
+  }
+  await accountsValid(companyId, data.lines, session, actor.kind !== "service");
+  const [record] = await Journal.create(
+    [
+      {
+        _id: randomUUID(),
+        companyId,
+        ...data,
+        sourceHash: hash(data),
+        postingOrigin: actor.kind === "service" ? "source" : "manual",
+        createdBy: actorId(actor),
+        updatedBy: actorId(actor),
+      },
+    ],
+    { session },
+  );
+  await audit(
+    session,
+    actor,
+    companyId,
+    "journal.create",
+    record.id,
+    data.description,
+    undefined,
+    record.toObject(),
+  );
+  return record;
 }
 export async function editDraft(
   actor: Actor,
@@ -510,6 +530,8 @@ export async function postJournal(
     );
     assert(record, "Journal not found", 404);
     if (record.status === "posted") return record;
+    assert(record.status === "draft", "Only current drafts may post", 409);
+    await assertArPosting(record, companyId, session);
     assert(
       record.revision === revision,
       "Draft changed; review before posting",
@@ -534,6 +556,13 @@ export async function postJournal(
       updatedBy: actorId(actor),
     });
     await record.save({ session });
+    if (record.arVersionId) {
+      await ArVersion.updateOne(
+        { _id: record.arVersionId, companyId },
+        { $set: { status: "posted", updatedBy: actorId(actor) } },
+        { session },
+      );
+    }
     await audit(
       session,
       actor,

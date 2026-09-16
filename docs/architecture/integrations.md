@@ -1,5 +1,7 @@
 # Integration boundaries
 
+The first Pioneer AR source projection is now implemented locally. See [Pioneer AR v1](../PIONEER_AR.md) for the strict ERP GET client, company binding, reviewed mappings, projection/subledger API, controlled drafts, supersession and cutover guards. The future-interface discussion below remains a roadmap; statements about no ERP connection/AR implementation describe the earlier baseline. No live connection or deployment has been performed as part of this change.
+
 ## Implemented
 
 The service credential verifier supports dedicated IDs, SHA-256 token hashes, expiration, company allowlists and explicit scopes. No default credentials exist. `finance:source:write` permits draft creation only; `finance:read` permits company-scoped accounting reads. `ar:read`, `ap:read`, `cfo:read` are recognized future scope names but confer no implemented endpoints. Service credentials cannot post, reverse, create accounts, or close periods. No ERP connection exists.

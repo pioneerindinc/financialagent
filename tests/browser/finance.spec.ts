@@ -34,11 +34,9 @@ test("headers organize posting children and 2027 setup is explicit and repeatabl
     },
   ]);
   await page.goto(`/accounts?company=${company}`);
-  const create = page
-    .locator("form")
-    .filter({
-      has: page.getByRole("button", { name: "Create account", exact: true }),
-    });
+  const create = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Create account", exact: true }),
+  });
   await create.getByLabel("Code", { exact: true }).fill("1800");
   await create.getByLabel("Name", { exact: true }).fill("Header fixture");
   await create.getByLabel("Posting account", { exact: true }).uncheck();
@@ -208,6 +206,83 @@ test("account governance editor and manual selection enforce visible policy", as
       .locator("option", { hasText: "1900 · Renamed control" }),
   ).toHaveCount(1);
 });
+test("AR screen preserves source/financial distinction, private credentials and human-only writes", async ({
+  page,
+  context,
+}) => {
+  expect(
+    (await context.request.get(`/api/ar?company=${company}`)).status(),
+  ).toBe(401);
+  const cookie = {
+    name: "__Host-finance-session",
+    value: humanToken,
+    domain: "localhost",
+    path: "/",
+    secure: true,
+    httpOnly: true,
+    sameSite: "Strict" as const,
+  };
+  await context.addCookies([cookie]);
+  await page.goto(`/ar?company=${company}`);
+  await expect(
+    page.getByRole("heading", { name: "Pioneer accounts receivable" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("No imported invoices in this view."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Import ERP window" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Source amounts are not remaining balances/),
+  ).toBeVisible();
+  const html = await page.content();
+  expect(html).not.toContain("browser-fixture-only-erp-secret");
+  const scripts = await page
+    .locator("script[src]")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => (node as HTMLScriptElement).src),
+    );
+  for (const url of scripts) {
+    const body = await (await context.request.get(url)).text();
+    expect(body).not.toContain("browser-fixture-only-erp-secret");
+    expect(body).not.toContain("FINANCIAL_AGENT_API_KEY");
+  }
+  const command = {
+    action: "sync",
+    companyId: company,
+    query: { from: "2026-01-01", to: "2026-12-31", limit: 50 },
+    mode: "parallel",
+    reason: "Denied fixture request",
+  };
+  expect(
+    (
+      await context.request.post("/api/ar", {
+        headers: { Origin: "https://attacker.invalid" },
+        data: command,
+      })
+    ).status(),
+  ).toBe(403);
+  await context.addCookies([{ ...cookie, value: readerToken }]);
+  await page.reload();
+  await expect(
+    page.getByText("No imported invoices in this view."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Import ERP window" }),
+  ).toHaveCount(0);
+  expect(
+    (
+      await context.request.post("/api/ar", {
+        headers: { Origin: "https://localhost:3444" },
+        data: command,
+      })
+    ).status(),
+  ).toBe(403);
+  expect(
+    (await context.request.get("/api/ar?company=317-graphics")).status(),
+  ).toBe(403);
+});
 test.beforeAll(async () => {
   test.setTimeout(120000);
   db = await MongoMemoryReplSet.create({
@@ -300,6 +375,9 @@ test.beforeAll(async () => {
         AUTH_AUDIENCE: "finance-test",
         AUTH_JWKS_URL: "https://localhost:3444/jwks",
         SERVICE_CREDENTIALS_JSON: "[]",
+        PIONEER_AR_COMPANY_ID: company,
+        PIONEER_AR_AUTHORITATIVE_ENABLED: "false",
+        FINANCIAL_AGENT_API_KEY: "browser-fixture-only-erp-secret",
       },
     },
   );
