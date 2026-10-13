@@ -123,6 +123,22 @@ export function ArConsole({
   }
   return (
     <>
+      <section aria-labelledby="pioneer-ar-guidance-title">
+        <h2 id="pioneer-ar-guidance-title">Pioneer AR status and limitations</h2>
+        <p>
+          Parallel imports are review-only source projections, not authoritative
+          customer balances. QuickBooks remains the official AR system through
+          December 31, 2026; no cutover is activated here.
+        </p>
+        <p>
+          An invoice face value is not necessarily its outstanding balance.
+          Payments, credits, and settlement history are not tracked here, and
+          opening balances have not been reconciled. Do not treat imported
+          amounts as collectible balances or post them as opening AR.
+        </p>
+        {error && <p role="alert" className="error">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
+      </section>
       <ArPreview key={company} company={company} />
       {data && (
         <>

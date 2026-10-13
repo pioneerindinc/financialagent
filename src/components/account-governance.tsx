@@ -49,6 +49,12 @@ export function AccountGovernance({
         />{" "}
         Allow manual posting
       </label>
+      <small>
+        Posting accounts can receive journal entries. Control accounts are
+        explained by a source or subsystem and should not be manually posted.
+        Header / Non-Posting accounts organize child accounts and cannot receive
+        journal lines.
+      </small>
     </>
   );
 }

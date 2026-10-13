@@ -16,7 +16,7 @@
 :root {
   font-family: Arial, Helvetica, sans-serif;
   color: #111111;
-  background: #999999;
+  background: #f3f5f2;
 }
 * {
   box-sizing: border-box;
@@ -38,7 +38,7 @@ a:hover {
 aside {
   width: 250px;
   flex-shrink: 0;
-  background: #555555;
+  background: #111111;
   color: #ffffff;
   padding: 30px 22px;
   display: flex;
@@ -53,7 +53,7 @@ aside a {
 }
 aside small {
   margin-top: auto;
-  color: #111111;
+  color: #d8e2da;
 }
 .sidebar-sign-out {
   margin: 0;
@@ -75,8 +75,11 @@ aside small {
   font-size: 10px;
   letter-spacing: 1.8px;
   font-weight: 700;
-  color: #111111;
+  color: #53645a;
   margin-bottom: 10px;
+}
+aside .eyebrow {
+  color: #d8e2da;
 }
 main {
   padding: 32px 42px;
@@ -88,7 +91,7 @@ header {
   justify-content: space-between;
   gap: 24px;
   align-items: center;
-  border-bottom: 1px solid #111111;
+  border-bottom: 1px solid #d8e2da;
   padding-bottom: 24px;
 }
 h1 {
@@ -107,7 +110,7 @@ h2 {
 }
 section {
   background: #ffffff;
-  border: 1px solid #111111;
+  border: 1px solid #d8e2da;
   border-radius: 8px;
   padding: 24px;
   margin: 20px 0;
@@ -134,7 +137,7 @@ td,
 th {
   padding: 14px 12px;
   text-align: left;
-  border-bottom: 1px solid #111111;
+  border-bottom: 1px solid #d8e2da;
   vertical-align: top;
 }
 th {
@@ -154,7 +157,7 @@ label {
 input,
 select {
   background: #ffffff;
-  border: 1px solid #111111;
+  border: 1px solid #c6d4ca;
   border-radius: 5px;
   padding: 10px;
   color: #111111;
@@ -183,8 +186,8 @@ button:disabled {
   cursor: wait;
 }
 .badge {
-  background: #999999;
-  color: #ffffff;
+  background: #e5ece7;
+  color: #173e31;
   padding: 5px 9px;
   border-radius: 4px;
 }
@@ -195,7 +198,7 @@ button:disabled {
   border-radius: 4px;
 }
 .error {
-  color: #ff0000;
+  color: #b42318;
   background: #ffffff;
   padding: 16px;
   border-radius: 5px;
@@ -232,11 +235,11 @@ button:disabled {
   margin-bottom: 48px;
 }
 small {
-  color: #111111;
+  color: #53645a;
   font-size: 12px;
 }
 :focus-visible {
-  outline: 3px solid #0ea5e9;
+  outline: 3px solid #176c5b;
   outline-offset: 3px;
 }
 @media (max-width: 900px) {
