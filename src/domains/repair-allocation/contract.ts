@@ -72,9 +72,11 @@ export const allocationEvidenceSchema = z.discriminatedUnion("status", [
   if (new Set(e.sourceLineIds).size !== e.sourceLineIds.length ||
       new Set(e.components.map(c => c.componentId)).size !== e.components.length)
     issue("Duplicate source or component identity");
-  if (e.status === "captured" && (!e.components.length ||
-      e.components.reduce((sum, c) => sum + c.amountCents, 0) !== e.actualBilledRepairCents))
-    issue("Captured evidence is not reconciled");
+  if (e.status === "captured") {
+    const bridge = e.components.reduce((sum, c) => sum + c.amountCents, 0);
+    if (!e.components.length || bridge !== e.actualBilledRepairCents)
+      issue("Captured evidence is not reconciled");
+  }
   if (e.status === "exception" && (!e.sourceId || !e.sourceRevision) &&
       !e.reasonCodes.includes("missing-source-binding")) issue("Unbound exception not explicit");
   for (const c of e.components) if (c.kind === "repair-parts" || c.kind === "labor-services") {

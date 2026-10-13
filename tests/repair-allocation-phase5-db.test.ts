@@ -3,6 +3,7 @@ import { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { ArInvoice, ArVersion, ArMapping, Audit, Journal, Company } from "../src/models";
 import { simulateImportedAllocationWindow } from "../src/domains/repair-allocation/simulation";
+import { getAllocationManagementReport } from "../src/domains/repair-allocation/management-report";
 import { allocationHash } from "../src/domains/repair-allocation/contract";
 import type { Actor } from "../src/lib/auth/policy";
 import { invoice } from "./ar-fixtures";
@@ -61,9 +62,21 @@ it("reads imported projections without changing invoices, versions, mappings, jo
   expect(await Company.findById(companyId).lean()).toEqual(companyBefore);
   expect(await ArVersion.findById("fixture-version").lean()).toMatchObject({
     sourceRevision: full.sourceRevision, originalAmountCents: 10500, mode: "parallel" });
+  fetcher.mockResolvedValue(Response.json({ ...page, period: { from: "2027-01-15", to: "2027-01-16",
+    timeBasis: "UTC-finalization-date" } }));
+  const report = await getAllocationManagementReport(actor, companyId,
+    { from: "2027-01-15", to: "2027-01-15", limit: 1 }, fetcher);
+  expect(report).toMatchObject({ billedInvoiceCents: 10500, unallocatedExceptionsCents: 10000,
+    otherExistingBilledCents: 500, bridgeDifferenceCents: 0 });
+  expect(await counts()).toEqual(before);
+  expect(await Company.findById(companyId).lean()).toEqual(companyBefore);
   await expect(simulateImportedAllocationWindow({ ...actor, scopes: [] }, companyId,
     { from: "2027-01-01", to: "2027-01-31", limit: 1 }, fetcher)).rejects.toMatchObject({ status: 403 });
   await expect(simulateImportedAllocationWindow(actor, "317-graphics",
     { from: "2027-01-01", to: "2027-01-31", limit: 1 }, fetcher)).rejects.toMatchObject({ status: 403 });
-  expect(fetcher).toHaveBeenCalledTimes(1);
+  await expect(getAllocationManagementReport({ ...actor, scopes: [] }, companyId,
+    { from: "2027-01-15", to: "2027-01-15", limit: 1 }, fetcher)).rejects.toMatchObject({ status: 403 });
+  await expect(getAllocationManagementReport(actor, "317-graphics",
+    { from: "2027-01-15", to: "2027-01-15", limit: 1 }, fetcher)).rejects.toMatchObject({ status: 403 });
+  expect(fetcher).toHaveBeenCalledTimes(2);
 });

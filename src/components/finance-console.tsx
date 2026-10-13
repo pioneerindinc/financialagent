@@ -87,6 +87,7 @@ const links = [
   ["/ar", "Accounts receivable"],
   ["/reports/trial-balance", "Trial Balance"],
   ["/reports/general-ledger", "General Ledger"],
+  ["/reports", "Repair allocation report"],
 ];
 export function FinanceConsole({
   view,

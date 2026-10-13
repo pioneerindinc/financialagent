@@ -110,6 +110,9 @@ describe("Phase 5 strict supplementary ingestion", () => {
     expect(() => reconcileAllocationScan(scan([valid]), [retained({ sourceType: "standalone-invoice" })])).toThrow();
     expect(() => reconcileAllocationScan(scan([valid]), [retained({ lines: [] })])).toThrow();
     expect(() => reconcileAllocationScan(scan([valid]), [retained({ lines: [
+      { ...retained().lines[0], sourceLineId: "changed-line" }, retained().lines[1],
+    ] })])).toThrow();
+    expect(() => reconcileAllocationScan(scan([valid]), [retained({ lines: [
       { ...retained().lines[0], amountCents: 9000 }, retained().lines[1],
     ] })])).toThrow();
     expect(() => allocationRecordSchema.parse({ ...valid, evidence: { ...valid.evidence,

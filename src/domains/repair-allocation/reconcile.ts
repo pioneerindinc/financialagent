@@ -8,7 +8,7 @@ import { ALLOCATION_COMPANY, allocationHash, allocationRecordSchema, indianapoli
 export type AllocationReview = {
   sourceId: string;
   sourceRevision: string;
-  status: "reconciled" | "source-exception" | "missing-evidence" | "missing-finalization-timestamp";
+  status: "reconciled" | "source-exception" | "missing-evidence" | "missing-finalization-timestamp" | "outside-policy";
   billedRepairCents: number;
   evidenceRecordId: string | null;
   reasonCodes: string[];
@@ -22,8 +22,11 @@ export type AllocationSimulation = {
   outsidePolicyCount: number;
 };
 
+export type AllocationReconciliationMode = "phase5-strict" | "phase6-management-report";
+
 /** Pure, management-evidence-only reconciliation. Does not import or persist. */
-export function reconcileAllocationScan(scan: AllocationScan, invoiceInput: unknown[]): AllocationSimulation {
+export function reconcileAllocationScan(scan: AllocationScan, invoiceInput: unknown[],
+  mode: AllocationReconciliationMode = "phase5-strict"): AllocationSimulation {
   assert(scan.complete && scan.from <= scan.to && /^[a-f0-9]{64}$/.test(scan.scanRevision),
     "Complete allocation scan required", 502);
   const invoices = invoiceInput.map(row => retainedInvoiceSchema.parse(row));
@@ -69,11 +72,15 @@ export function reconcileAllocationScan(scan: AllocationScan, invoiceInput: unkn
     assert(!latestBySource.has(e.sourceId), "Multiple allocation operations for one invoice", 409);
     latestBySource.set(e.sourceId, latest);
   }
+  const sourceBindingErrors = new Map<string, string[]>();
   for (const [sourceId, record] of latestBySource) {
     const invoice = invoiceBySource.get(sourceId);
     assert(invoice, "Allocation evidence refers to a missing imported invoice", 409);
-    assert(invoice.sourceType === "repair-invoice" && invoice.sourceRevision === record.evidence.sourceRevision,
-      "Allocation source identity or revision is stale", 409);
+    assert(invoice.sourceType === "repair-invoice", "Allocation evidence refers to an unsupported invoice family", 409);
+    if (invoice.sourceRevision !== record.evidence.sourceRevision) {
+      assert(mode === "phase6-management-report", "Allocation source identity or revision is stale", 409);
+      sourceBindingErrors.set(sourceId, ["stale-source-revision"]);
+    }
   }
   const reviews: AllocationReview[] = [];
   let outsidePolicyCount = 0;
@@ -102,6 +109,8 @@ export function reconcileAllocationScan(scan: AllocationScan, invoiceInput: unkn
     if (indianapolisDate(invoice.issuedAt) < "2027-01-01") {
       assert(!record, "Pre-effective invoice has allocation evidence", 409);
       outsidePolicyCount++;
+      reviews.push({ sourceId: invoice.sourceId, sourceRevision: invoice.sourceRevision,
+        status: "outside-policy", billedRepairCents, evidenceRecordId: null, reasonCodes: [] });
       continue;
     }
     if (!record) {
@@ -111,20 +120,38 @@ export function reconcileAllocationScan(scan: AllocationScan, invoiceInput: unkn
       continue;
     }
     const e = record.evidence;
-    assert(e.originalFinalizedAt === invoice.issuedAt &&
+    const sourceErrors = sourceBindingErrors.get(invoice.sourceId);
+    if (sourceErrors) {
+      reviews.push({ sourceId: invoice.sourceId, sourceRevision: invoice.sourceRevision,
+        status: "source-exception", billedRepairCents, evidenceRecordId: record.recordId,
+        reasonCodes: sourceErrors });
+      continue;
+    }
+    const lineBound = e.originalFinalizedAt === invoice.issuedAt &&
       e.sourceLineIds.length === repairLines.length &&
       new Set(e.sourceLineIds).size === repairLines.length &&
-      repairLines.every(line => e.sourceLineIds.includes(line.sourceLineId)),
-    "Allocation finalization or source-line binding mismatch", 409);
+      repairLines.every(line => e.sourceLineIds.includes(line.sourceLineId));
+    if (!lineBound) {
+      assert(mode === "phase6-management-report", "Allocation finalization or source-line binding mismatch", 409);
+      reviews.push({ sourceId: invoice.sourceId, sourceRevision: invoice.sourceRevision,
+        status: "source-exception", billedRepairCents, evidenceRecordId: record.recordId,
+        reasonCodes: ["finalization-or-source-line-binding-mismatch"] });
+      continue;
+    }
     if (e.status === "exception") {
       reviews.push({ sourceId: invoice.sourceId, sourceRevision: invoice.sourceRevision,
         status: "source-exception", billedRepairCents, evidenceRecordId: record.recordId,
         reasonCodes: e.reasonCodes });
       continue;
     }
-    assert(e.actualBilledRepairCents === billedRepairCents &&
-      e.components.reduce((sum, component) => sum + component.amountCents, 0) === billedRepairCents,
-    "Allocation does not reconcile to billed repair lines", 409);
+    const bridgedComponents = e.components.reduce((sum, component) => sum + component.amountCents, 0);
+    if (e.actualBilledRepairCents !== billedRepairCents || bridgedComponents !== billedRepairCents) {
+      assert(mode === "phase6-management-report", "Allocation does not reconcile to billed repair lines", 409);
+      reviews.push({ sourceId: invoice.sourceId, sourceRevision: invoice.sourceRevision,
+        status: "source-exception", billedRepairCents, evidenceRecordId: record.recordId,
+        reasonCodes: ["billed-value-reconciliation-mismatch"] });
+      continue;
+    }
     reviews.push({ sourceId: invoice.sourceId, sourceRevision: invoice.sourceRevision,
       status: "reconciled", billedRepairCents, evidenceRecordId: record.recordId, reasonCodes: [] });
   }

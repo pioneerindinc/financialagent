@@ -23,6 +23,7 @@ import {
   generalLedger,
 } from "../../../domains/reporting/service";
 import { getJournal } from "../../../domains/accounting/queries";
+import { getAllocationManagementReport } from "../../../domains/repair-allocation/management-report";
 import { id, text, date } from "../../../domains/accounting/validation";
 async function actor(req: NextRequest) {
   const bearer = req.headers.get("authorization");
@@ -80,6 +81,11 @@ export async function GET(req: NextRequest) {
         break;
       case "journal":
         data = await getJournal(user, company, id.parse(q.get("id")));
+        break;
+      case "repair-allocation":
+        data = await getAllocationManagementReport(user, company, {
+          from: q.get("from"), to: q.get("to"), limit: Number(q.get("limit") || 25),
+        });
         break;
       default:
         data = await overview(user, company);
