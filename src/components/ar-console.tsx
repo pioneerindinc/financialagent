@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DateInput } from "./date-input";
+import { ArPreview } from "./ar-preview";
 import { formatDate } from "../lib/dates";
 import { formatMoney } from "../lib/money";
 type Account = {
@@ -122,20 +123,7 @@ export function ArConsole({
   }
   return (
     <>
-      <section>
-        <h2>Pioneer accounts receivable</h2>
-        <p>
-          QuickBooks remains official through 12-31-2026. Planned FinancialAgent
-          start: 01-01-2027. Importing does not activate cutover or post
-          journals.
-        </p>
-        <p>
-          Parallel imports are projection-only. Source amounts are not remaining
-          balances. Payments and settlement are not tracked here.
-        </p>
-        {error && <p role="alert">{error}</p>}
-        {notice && <p role="status">{notice}</p>}
-      </section>
+      <ArPreview key={company} company={company} />
       {data && (
         <>
           {canWrite && (

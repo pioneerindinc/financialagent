@@ -240,9 +240,8 @@ export function FinanceConsole({
     <div className="workspace">
       <aside>
         <div className="brand">
-          FA <span>FinancialAgent</span>
+          FA <span>Financial Agent</span>
         </div>
-        <p className="eyebrow">ACCOUNTING WORKSPACE</p>
         <nav>
           {links.map(([href, label]) => (
             <Link key={href} href={`${href}${companyQuery}`}>
@@ -250,7 +249,6 @@ export function FinanceConsole({
             </Link>
           ))}
         </nav>
-        <small>USD · Company books kept separate</small>
         {showSignOut && (
           <form
             action="/auth/sign-out"
@@ -264,7 +262,6 @@ export function FinanceConsole({
       <main>
         <header>
           <div>
-            <p className="eyebrow">COMPANY CONTEXT</p>
             <strong>
               {data?.company.name || "Select a company to continue"}
             </strong>
@@ -806,7 +803,7 @@ export function FinanceConsole({
                     />
                   </label>
                 </div>
-                <p>Posted entries only · Transaction date basis · USD</p>
+                <p>Posted entries only · Transaction date basis</p>
                 {report && (
                   <table>
                     <thead>

@@ -16,7 +16,7 @@
 :root {
   font-family: Arial, Helvetica, sans-serif;
   color: #111111;
-  background: #f3f5f2;
+  background: #999999;
 }
 * {
   box-sizing: border-box;
@@ -38,7 +38,7 @@ a:hover {
 aside {
   width: 250px;
   flex-shrink: 0;
-  background: #111111;
+  background: #555555;
   color: #ffffff;
   padding: 30px 22px;
   display: flex;
@@ -49,10 +49,11 @@ aside a {
   color: #ffffff;
   display: block;
   padding: 12px 0;
+  font-weight: 600;
 }
 aside small {
   margin-top: auto;
-  color: #ffffff;
+  color: #111111;
 }
 .sidebar-sign-out {
   margin: 0;
@@ -74,7 +75,7 @@ aside small {
   font-size: 10px;
   letter-spacing: 1.8px;
   font-weight: 700;
-  color: #ffffff;
+  color: #111111;
   margin-bottom: 10px;
 }
 main {
@@ -87,7 +88,7 @@ header {
   justify-content: space-between;
   gap: 24px;
   align-items: center;
-  border-bottom: 1px solid #d8e2da;
+  border-bottom: 1px solid #111111;
   padding-bottom: 24px;
 }
 h1 {
@@ -105,8 +106,8 @@ h2 {
   margin-bottom: 28px;
 }
 section {
-  background: white;
-  border: 1px solid #dbe4dc;
+  background: #ffffff;
+  border: 1px solid #111111;
   border-radius: 8px;
   padding: 24px;
   margin: 20px 0;
@@ -133,7 +134,7 @@ td,
 th {
   padding: 14px 12px;
   text-align: left;
-  border-bottom: 1px solid #e7ece7;
+  border-bottom: 1px solid #111111;
   vertical-align: top;
 }
 th {
@@ -152,8 +153,8 @@ label {
 }
 input,
 select {
-  background: white;
-  border: 1px solid #c6d4ca;
+  background: #ffffff;
+  border: 1px solid #111111;
   border-radius: 5px;
   padding: 10px;
   color: #111111;
@@ -231,11 +232,11 @@ button:disabled {
   margin-bottom: 48px;
 }
 small {
-  color: #708475;
+  color: #111111;
   font-size: 12px;
 }
 :focus-visible {
-  outline: 3px solid #ff0000;
+  outline: 3px solid #0ea5e9;
   outline-offset: 3px;
 }
 @media (max-width: 900px) {

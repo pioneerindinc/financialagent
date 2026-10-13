@@ -49,11 +49,6 @@ export function AccountGovernance({
         />{" "}
         Allow manual posting
       </label>
-      <small>
-        {postingAccount
-          ? "Posting accounts can receive journal entries. Control accounts have balances explained by a source or subsystem."
-          : "Header / Non-Posting: organizes child accounts; no new journal lines are allowed."}
-      </small>
     </>
   );
 }
